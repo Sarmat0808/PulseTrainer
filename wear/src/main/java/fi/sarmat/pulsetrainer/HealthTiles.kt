@@ -90,7 +90,7 @@ object HealthTiles {
     fun todayLayout(ctx: Context): LayoutElement {
         val c = Storage.todayCoach() ?: Storage.localCoach()
         val p = Passive.summaries().lastOrNull()
-        val sleep = c?.sleepMin?.takeIf { it > 0 } ?: p?.let { d -> if (d.sleepStart != null && d.sleepEnd != null) ((d.sleepEnd - d.sleepStart) / 60000).toInt() - (d.awakeMin ?: 0) else null }
+        val sleep = c?.sleepMin?.takeIf { it > 0 } ?: p?.let { d -> val a = d.sleepStart; val b = d.sleepEnd; if (a != null && b != null) ((b - a) / 60000).toInt() - (d.awakeMin ?: 0) else null }
         val steps = c?.steps?.takeIf { it >= 0 } ?: p?.steps
         val ready = c?.score?.toString() ?: "—"
         val energy = c?.energy?.takeIf { it >= 0 }

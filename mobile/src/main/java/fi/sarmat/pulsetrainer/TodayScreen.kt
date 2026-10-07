@@ -422,7 +422,7 @@ private fun StressDayChart(samples: List<Pair<Long, Int>>, workouts: List<fi.sar
     }
     Row(Modifier.fillMaxWidth()) {
         listOf("0", "6", "12", "18", "24").forEachIndexed { i, t ->
-            Text(t, color = Dim, fontSize = 12.sp, modifier = Modifier.weight(1f), textAlign = if (i == 4) TextAlign.End else TextAlign.Start)
+            Text(t, color = Dim, fontSize = 12.sp, modifier = Modifier.weight(1f), textAlign = if (i == 4) androidx.compose.ui.text.style.TextAlign.End else androidx.compose.ui.text.style.TextAlign.Start)
         }
     }
 }

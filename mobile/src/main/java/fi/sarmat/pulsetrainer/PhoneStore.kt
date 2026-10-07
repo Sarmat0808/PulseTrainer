@@ -371,8 +371,10 @@ object PhoneStore {
     fun mergeWatch(list: List<DailyStats>): List<DailyStats> {
         val pd = passive.value.associateBy { it.day }
         val own = watchOnly
-        fun sleepOf(p: PassiveDay): Int? = if (p.sleepStart != null && p.sleepEnd != null && p.sleepEnd > p.sleepStart)
-            (((p.sleepEnd - p.sleepStart) / 60000).toInt() - (p.awakeMin ?: 0)).coerceAtLeast(0) else null
+        fun sleepOf(p: PassiveDay): Int? {
+            val a = p.sleepStart ?: return null; val b = p.sleepEnd ?: return null
+            return if (b > a) (((b - a) / 60000).toInt() - (p.awakeMin ?: 0)).coerceAtLeast(0) else null
+        }
         val merged = list.map { d ->
             val p = pd[d.day] ?: return@map if (own) d.copy(sleepMin = null, deepMin = null, remMin = null, lightMin = null, awakeMin = null) else d
             if (own) d.copy(
