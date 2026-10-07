@@ -30,34 +30,43 @@ enum class WorkoutType(
     /** Rounds mode: work / rest seconds. */
     val roundWork: Int = 180,
     val roundRest: Int = 60,
+    /** Climbing matters: the barometer measures height, floors and vertical speed. */
+    val climb: Boolean = false,
+    /** Steps and cadence from the watch step counter. */
+    val steps: Boolean = false,
 ) {
-    STRENGTH("Силовая (зал)", "Силовая", Mode.SETS, minRestSec = 120, strength = true),
-    OUTDOOR_STRENGTH("Уличные тренажёры", "Улица", Mode.SETS, minRestSec = 90, strength = true),
+    STRENGTH("Силовая в зале", "Силовая", Mode.SETS, minRestSec = 120, strength = true),
+    OUTDOOR_STRENGTH("Воркаут (уличные турники)", "Воркаут", Mode.SETS, minRestSec = 90, strength = true),
     PULL_UPS("Подтягивания", "Турник", Mode.SETS, repCount = true, minRestSec = 120, strength = true),
-    PUSH_UPS("Отжимания", "Отжим.", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
-    SQUATS("Приседания", "Присед.", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
+    PUSH_UPS("Отжимания", "Отжимания", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
+    SQUATS("Приседания", "Приседания", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
     BOXING("Бокс", "Бокс", Mode.ROUNDS),
-    TREADMILL("Беговая дорожка", "Дорожка", Mode.CARDIO, treadmill = true),
+    TREADMILL("Беговая дорожка", "Дорожка", Mode.CARDIO, treadmill = true, steps = true),
     ELLIPTICAL("Орбитрек", "Орбитрек", Mode.CARDIO),
-    BIKE_INDOOR("Велотренажёр", "Велотр.", Mode.CARDIO),
-    BIKE_OUTDOOR("Велосипед (улица)", "Велосипед", Mode.CARDIO, gps = true, lapM = 5000),
-    WALK("Прогулка", "Прогулка", Mode.CARDIO, gps = true, lapM = 1000),
-    RUN("Бег на улице", "Бег", Mode.CARDIO, gps = true, lapM = 1000),
+    BIKE_INDOOR("Велотренажёр", "Вело (зал)", Mode.CARDIO),
+    BIKE_OUTDOOR("Велосипед (улица)", "Велосипед", Mode.CARDIO, gps = true, lapM = 5000, climb = true),
+    WALK("Ходьба / прогулка", "Ходьба", Mode.CARDIO, gps = true, lapM = 1000, climb = true, steps = true),
+    RUN("Бег на улице", "Бег", Mode.CARDIO, gps = true, lapM = 1000, climb = true, steps = true),
+    STAIRS_HOME("Лестница в доме", "Лестница", Mode.CARDIO, climb = true, steps = true,
+        note = "Подъёмы и спуски по этажам: высота, этажи, темп подъёма"),
+    STAIRS_OUTDOOR("Ступеньки на улице", "Ступеньки", Mode.CARDIO, gps = true, climb = true, steps = true,
+        note = "Лестницы и подъёмы на улице: этажи, высота, маршрут"),
 
     // ----- Other sports -----
     FOOTBALL("Футбол", "Футбол", Mode.CARDIO, gps = true, extra = true),
     BASKETBALL("Баскетбол", "Баскетбол", Mode.CARDIO, extra = true),
     TENNIS("Теннис (улица)", "Теннис", Mode.CARDIO, extra = true),
-    TABLE_TENNIS("Настольный теннис", "Наст. теннис", Mode.CARDIO, extra = true),
+    TABLE_TENNIS("Настольный теннис", "Пинг-понг", Mode.CARDIO, extra = true),
     VOLLEYBALL("Волейбол", "Волейбол", Mode.CARDIO, extra = true),
     BADMINTON("Бадминтон", "Бадминтон", Mode.CARDIO, extra = true),
     SWIMMING("Бассейн", "Бассейн", Mode.CARDIO, extra = true, note = "В воде Bluetooth не работает — пульс с часов"),
     ROWING("Гребной тренажёр", "Гребля", Mode.CARDIO, extra = true),
-    STAIRS("Степпер / лестница", "Степпер", Mode.CARDIO, extra = true),
-    HIIT("Интервальная (HIIT)", "HIIT", Mode.ROUNDS, extra = true, roundWork = 40, roundRest = 20),
+    STAIRS("Степпер (тренажёр)", "Степпер", Mode.CARDIO, steps = true,
+        note = "На тренажёре высота не меняется: этажи считаются по шагам"),
+    HIIT("Интервальная (HIIT)", "Интервалы", Mode.ROUNDS, extra = true, roundWork = 40, roundRest = 20),
     JUMP_ROPE("Скакалка", "Скакалка", Mode.ROUNDS, extra = true, roundWork = 60, roundRest = 30),
-    HIKING("Поход / скандинавская ходьба", "Поход", Mode.CARDIO, gps = true, lapM = 1000, extra = true),
-    SKIING("Лыжи", "Лыжи", Mode.CARDIO, gps = true, lapM = 1000, extra = true),
+    HIKING("Поход / скандинавская ходьба", "Поход", Mode.CARDIO, gps = true, lapM = 1000, extra = true, climb = true, steps = true),
+    SKIING("Лыжи", "Лыжи", Mode.CARDIO, gps = true, lapM = 1000, extra = true, climb = true),
     SKATING("Коньки", "Коньки", Mode.CARDIO, extra = true),
     DANCING("Танцы", "Танцы", Mode.CARDIO, extra = true),
     YOGA("Йога / растяжка", "Йога", Mode.CARDIO, extra = true),
@@ -119,6 +128,11 @@ data class Segment(
     val trimp: Double,
     val avgHr: Int,
     val maxHr: Int,
+    /** Metres climbed / descended (barometer), floors (3 m), steps. */
+    val ascentM: Double = 0.0,
+    val descentM: Double = 0.0,
+    val floors: Int = 0,
+    val steps: Int = 0,
 )
 
 data class Workout(
@@ -142,6 +156,10 @@ data class Workout(
     val kcalTotal: Double get() = segments.sumOf { it.kcalTotal }
     val kcalActive: Double get() = segments.sumOf { it.kcalActive }
     val trimp: Double get() = segments.sumOf { it.trimp }
+    val ascentM: Double get() = segments.sumOf { it.ascentM }
+    val descentM: Double get() = segments.sumOf { it.descentM }
+    val floors: Int get() = segments.sumOf { it.floors }
+    val steps: Int get() = segments.sumOf { it.steps }
     val zoneSec: IntArray
         get() = IntArray(6) { i -> segments.sumOf { it.zoneSec[i] } }
     val avgHr: Int get() = if (hr.isEmpty()) 0 else hr.sumOf { it.bpm } / hr.size
@@ -201,6 +219,8 @@ data class PassiveDay(
     val hrMin: Int? = null,
     val hrMax: Int? = null,
     val dayAvg: Int? = null,
+    /** Floors climbed today (watch barometer, ~3 m each). */
+    val floors: Int? = null,
 )
 
 /** Morning readiness test. */

@@ -69,6 +69,7 @@ object HealthSync {
         WorkoutType.SWIMMING -> ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL
         WorkoutType.ROWING -> ExerciseSessionRecord.EXERCISE_TYPE_ROWING_MACHINE
         WorkoutType.STAIRS -> ExerciseSessionRecord.EXERCISE_TYPE_STAIR_CLIMBING_MACHINE
+        WorkoutType.STAIRS_HOME, WorkoutType.STAIRS_OUTDOOR -> ExerciseSessionRecord.EXERCISE_TYPE_STAIR_CLIMBING
         WorkoutType.HIIT -> ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING
         WorkoutType.JUMP_ROPE -> ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT
         WorkoutType.HIKING -> ExerciseSessionRecord.EXERCISE_TYPE_HIKING

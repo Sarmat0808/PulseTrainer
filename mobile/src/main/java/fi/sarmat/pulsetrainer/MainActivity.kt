@@ -173,72 +173,51 @@ fun PhoneRoot(openId: MutableState<String?>) {
     }
 
     var tab by remember { mutableStateOf(0) }
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f)) {
-            when (tab) {
-                0 -> TodayScreen(
-                    needAccess = !granted.containsAll(HealthData.READ_PERMISSIONS),
-                    onGrant = requestHc,
-                    onRefresh = { scope.launch { PhoneStore.refreshDays(ctx) } },
-                    openTab = { tab = it },
-                    openWorkout = { openId.value = it },
-                )
-                1 -> CoachScreen(
-                    needAccess = !granted.containsAll(HealthData.READ_PERMISSIONS),
-                    onGrant = requestHc,
-                    onRefresh = { scope.launch { PhoneStore.refreshDays(ctx) } },
-                )
-                2 -> NutritionScreen()
-                3 -> WorkoutsTab(workouts, hcStatus, granted, requestHc, onSync = { scope.launch { syncPending() } }, open = { openId.value = it })
-                else -> ProfileTab()
+    var settings by remember { mutableStateOf(false) }
+    if (settings) {
+        BackHandler { settings = false }
+        Column(Modifier.fillMaxSize()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 6.dp)) {
+                TextButton(onClick = { settings = false }) { Text("← Назад", fontSize = 17.sp) }
             }
+            Box(Modifier.weight(1f)) { ProfileTab() }
         }
-        NavigationBar(containerColor = CardBg) {
-            val labels = listOf("◎" to "Сегодня", "★" to "Тренер", "🍽" to "Еда", "♥" to "Спорт", "◉" to "Профиль")
-            labels.forEachIndexed { i, (ic, l) ->
-                NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(ic, fontSize = 18.sp) },
-                    label = { Text(l, maxLines = 1, softWrap = false) })
-            }
-        }
+        return
     }
-}
-
-private val WORKOUT_CARDS = linkedMapOf(
-    "health" to "Samsung Health / Health Connect",
-    "share" to "Поделиться для ИИ-анализа",
-)
-
-@Composable
-private fun WorkoutsTab(
-    workouts: List<Workout>, hcStatus: Int, granted: Set<String>, requestHc: () -> Unit,
-    onSync: () -> Unit, open: (String) -> Unit,
-) {
-    val layout = rememberCardLayout("workouts", WORKOUT_CARDS.keys.toList(), WORKOUT_CARDS.keys.toSet())
-    val renderCard: @Composable (String) -> Unit = { id ->
-        when (id) {
-            "health" -> HealthCard(hcStatus, granted, onGrant = requestHc, onSync = onSync)
-            "share" -> ShareCard()
-        }
-    }
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Тренировки", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
-                ArrangeButton("workouts", WORKOUT_CARDS, WORKOUT_CARDS.keys.toSet())
+    androidx.compose.runtime.CompositionLocalProvider(LocalOpenSettings provides { settings = true }) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
+                when (tab) {
+                    0 -> TodayScreen(
+                        needAccess = !granted.containsAll(HealthData.READ_PERMISSIONS),
+                        onGrant = requestHc,
+                        onRefresh = { scope.launch { PhoneStore.refreshDays(ctx) } },
+                        openTab = { tab = if (it == 4) 0.also { settings = true } else it },
+                        openWorkout = { openId.value = it },
+                    )
+                    1 -> CoachScreen(
+                        needAccess = !granted.containsAll(HealthData.READ_PERMISSIONS),
+                        onGrant = requestHc,
+                        onRefresh = { scope.launch { PhoneStore.refreshDays(ctx) } },
+                    )
+                    2 -> NutritionScreen()
+                    else -> WorkoutsScreen(
+                        workouts,
+                        health = { HealthCard(hcStatus, granted, onGrant = requestHc, onSync = { scope.launch { syncPending() } }) },
+                        share = { ShareCard() },
+                        live = { LiveCard() },
+                        open = { openId.value = it },
+                    )
+                }
             }
-            Text("Polar H10 / часы → Galaxy Watch → Samsung Health", fontSize = 15.sp, color = Dim)
+            NavigationBar(containerColor = CardBg) {
+                val labels = listOf("◎" to "Сегодня", "★" to "Тренер", "🍽" to "Еда", "♥" to "Тренировки")
+                labels.forEachIndexed { i, (ic, l) ->
+                    NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(ic, fontSize = 20.sp) },
+                        label = { Text(l, maxLines = 1, softWrap = false, fontSize = 13.sp) })
+                }
+            }
         }
-        item { LiveCard() }
-        layout.top.forEach { id -> item(key = id) { renderCard(id) } }
-        if (workouts.isEmpty()) item {
-            Text("Пока пусто. Завершите тренировку на часах — она появится здесь автоматически.", color = Dim, fontSize = 16.sp)
-        }
-        items(workouts, key = { it.id }) { w -> WorkoutRow(w) { open(w.id) } }
-        item(key = "more") { MoreBlock(layout.more.size, "Подробнее: Samsung Health, отчёт для ИИ") { layout.more.forEach { renderCard(it) } } }
     }
 }
 
@@ -253,7 +232,7 @@ fun Section(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LiveCard() {
+fun LiveCard() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val live by PhoneStore.live.collectAsState()
@@ -323,7 +302,7 @@ private fun LiveCard() {
 // ---------------- Health Connect ----------------
 
 @Composable
-private fun HealthCard(status: Int, granted: Set<String>, onGrant: () -> Unit, onSync: () -> Unit) {
+fun HealthCard(status: Int, granted: Set<String>, onGrant: () -> Unit, onSync: () -> Unit) {
     val all = granted.containsAll(HealthSync.PERMISSIONS)
     val any = granted.isNotEmpty()
     Section {
@@ -356,7 +335,7 @@ private fun HealthCard(status: Int, granted: Set<String>, onGrant: () -> Unit, o
 // ---------------- Share for AI ----------------
 
 @Composable
-private fun ShareCard() {
+fun ShareCard() {
     val ctx = LocalContext.current
     var withFiles by remember { mutableStateOf(true) }
     Section {
@@ -420,6 +399,7 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
             Text(w.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text(dateFmt.format(Date(w.start)) + " · " + w.hrSource, color = Dim, fontSize = 15.sp)
         }
+        item { ReviewSection(w) }
         item {
             Section {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

@@ -63,6 +63,30 @@
             android:foregroundServiceType="connectedDevice|location|health" />
 
         <service
+            android:name=".Fav4TileService"
+            android:exported="true"
+            android:label="Избранное: 4 тренировки"
+            android:icon="@drawable/sport_fitness_center"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+            <meta-data android:name="androidx.wear.tiles.PREVIEW" android:resource="@drawable/sport_fitness_center" />
+        </service>
+
+        <service
+            android:name=".Fav6TileService"
+            android:exported="true"
+            android:label="Избранное: 6 тренировок"
+            android:icon="@drawable/sport_directions_run"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+            <meta-data android:name="androidx.wear.tiles.PREVIEW" android:resource="@drawable/sport_directions_run" />
+        </service>
+
+        <service
             android:name=".PassiveDataService"
             android:exported="true"
             android:permission="com.google.android.wearable.healthservices.permission.PASSIVE_DATA_BINDING" />

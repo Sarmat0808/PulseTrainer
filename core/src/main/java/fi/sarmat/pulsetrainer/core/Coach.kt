@@ -90,8 +90,8 @@ data class CoachAdvice(
     val avoid: List<String> = emptyList(),
 )
 
-/** One input of the readiness score, for the "why" list. */
-data class Factor(val text: String, val points: Int)
+/** One input of the readiness score, for the "why" list. [group] limits how much one area can take away. */
+data class Factor(val text: String, val points: Int, val group: String = "")
 
 /**
  * Rule-based personal coach built on established guidelines:
@@ -122,6 +122,8 @@ object Coach {
         passive: List<PassiveDay> = emptyList(),
     ): CoachAdvice {
         var type = DayType.CARDIO
+        // Test starts of a few seconds are not training: they must not change readiness or plans.
+        @Suppress("NAME_SHADOWING") val workouts = workouts.filter { Physiology.isRealWorkout(it) }
         val bounds = Physiology.zoneBounds(p)
         val factors = ArrayList<Factor>()
         val missing = ArrayList<String>()
@@ -135,15 +137,15 @@ object Coach {
             confidence++
             val h = sleep / 60.0
             when {
-                h < 5.5 -> factors += Factor("Мало сна: ${fmtH(sleep)} (нужно 7–9 ч)", -25)
-                h < 6.5 -> factors += Factor("Сон короче нормы: ${fmtH(sleep)}", -15)
-                h < 7.0 -> factors += Factor("Сон чуть меньше 7 ч: ${fmtH(sleep)}", -5)
-                else -> factors += Factor("Сон в норме: ${fmtH(sleep)}", 0)
+                h < 5.5 -> factors += Factor("Мало сна: ${fmtH(sleep)} (нужно 7–9 ч)", -25, "sleep")
+                h < 6.5 -> factors += Factor("Сон короче нормы: ${fmtH(sleep)}", -15, "sleep")
+                h < 7.0 -> factors += Factor("Сон чуть меньше 7 ч: ${fmtH(sleep)}", -5, "sleep")
+                else -> factors += Factor("Сон в норме: ${fmtH(sleep)}", 0, "sleep")
             }
             val deep = today?.deepMin
-            if (deep != null && deep.toDouble() / sleep < 0.12) factors += Factor("Мало глубокого сна: $deep мин", -5)
+            if (deep != null && deep.toDouble() / sleep < 0.12) factors += Factor("Мало глубокого сна: $deep мин", -5, "sleep")
             val last3 = days.filter { it.day <= todayKey }.takeLast(3).mapNotNull { it.sleepMin?.takeIf { m -> m > 0 } }
-            if (last3.size >= 3 && last3.average() < 390) factors += Factor("Недосып накапливается: в среднем ${fmtH(last3.average().roundToInt())} за 3 ночи", -10)
+            if (last3.size >= 3 && last3.average() < 390) factors += Factor("Недосып накапливается: в среднем ${fmtH(last3.average().roundToInt())} за 3 ночи", -10, "sleep")
         } else missing += "сон (спите с часами)"
 
         // ---- 2. Resting pulse vs your 14-day norm (Samsung Health or PulseTrainer's own night pulse) ----
@@ -155,10 +157,10 @@ object Coach {
             confidence++
             val diff = restToday - restBase.average()
             when {
-                diff >= 6 -> factors += Factor("Пульс покоя ночью выше обычного на ${diff.roundToInt()} — усталость или начало болезни", -20)
-                diff >= 3 -> factors += Factor("Пульс покоя немного повышен (+${diff.roundToInt()})", -10)
-                diff <= -2 -> factors += Factor("Пульс покоя ниже обычного ($restToday) — хорошее восстановление", 0)
-                else -> factors += Factor("Пульс покоя в норме: $restToday", 0)
+                diff >= 6 -> factors += Factor("Пульс покоя ночью выше обычного на ${diff.roundToInt()} — усталость или начало болезни", -20, "rest")
+                diff >= 3 -> factors += Factor("Пульс покоя немного повышен (+${diff.roundToInt()})", -10, "rest")
+                diff <= -2 -> factors += Factor("Пульс покоя ниже обычного ($restToday) — хорошее восстановление", 0, "rest")
+                else -> factors += Factor("Пульс покоя в норме: $restToday", 0, "rest")
             }
         } else missing += if (restToday == null) "ночной пульс покоя (носите часы ночью)" else "норма пульса покоя (ещё ${4 - restBase.size} ноч.)"
 
@@ -168,9 +170,9 @@ object Coach {
             confidence++
             val strap = test.rmssd > 0
             when (test.status) {
-                2 -> factors += Factor(if (strap) "Утренний тест: вариабельность пульса сильно ниже нормы" else "Утренний тест: пульс покоя сильно выше нормы", -30)
-                1 -> factors += Factor(if (strap) "Утренний тест: вариабельность пульса ниже нормы" else "Утренний тест: пульс покоя выше нормы", -15)
-                else -> factors += Factor("Утренний тест: восстановление хорошее", 0)
+                2 -> factors += Factor(group = "hrv", text = if (strap) "Утренний тест: вариабельность пульса сильно ниже нормы" else "Утренний тест: пульс покоя сильно выше нормы", points = -30)
+                1 -> factors += Factor(group = "hrv", text = if (strap) "Утренний тест: вариабельность пульса ниже нормы" else "Утренний тест: пульс покоя выше нормы", points = -15)
+                else -> factors += Factor("Утренний тест: восстановление хорошее", 0, "hrv")
             }
         } else {
             val hrvBase = days.filter { it.day < todayKey }.takeLast(14).mapNotNull { it.hrvMs }
@@ -179,9 +181,9 @@ object Coach {
                 confidence++
                 val ratio = hrv / hrvBase.average()
                 when {
-                    ratio < 0.75 -> factors += Factor("Вариабельность пульса заметно ниже обычной", -20)
-                    ratio < 0.9 -> factors += Factor("Вариабельность пульса немного снижена", -10)
-                    else -> factors += Factor("Вариабельность пульса в норме", 0)
+                    ratio < 0.75 -> factors += Factor("Вариабельность пульса заметно ниже обычной", -20, "hrv")
+                    ratio < 0.9 -> factors += Factor("Вариабельность пульса немного снижена", -10, "hrv")
+                    else -> factors += Factor("Вариабельность пульса в норме", 0, "hrv")
                 }
             } else {
                 val n = tests.count { it.rmssd > 0 && it.time > now - 7 * DAY }
@@ -201,14 +203,14 @@ object Coach {
             if (chronicWeek > 30) {
                 val acwr = acute / chronicWeek
                 when {
-                    acwr > 1.5 -> factors += Factor("Нагрузка за неделю резко выросла (×${"%.1f".format(acwr)}) — риск перегрузки", -15)
-                    acwr > 1.3 -> factors += Factor("Нагрузка за неделю выше обычной (×${"%.1f".format(acwr)})", -7)
-                    acwr < 0.6 -> factors += Factor("Нагрузка за неделю ниже обычной — можно добавить", 0)
-                    else -> factors += Factor("Нагрузка за неделю в норме", 0)
+                    acwr > 1.5 -> factors += Factor("Нагрузка за неделю резко выросла (×${"%.1f".format(acwr)}) — риск перегрузки", -15, "load")
+                    acwr > 1.3 -> factors += Factor("Нагрузка за неделю выше обычной (×${"%.1f".format(acwr)})", -7, "load")
+                    acwr < 0.6 -> factors += Factor("Нагрузка за неделю ниже обычной — можно добавить", 0, "load")
+                    else -> factors += Factor("Нагрузка за неделю в норме", 0, "load")
                 }
                 val last2 = loadBetween(now - 2 * DAY, now + 1)
-                if (last2 > chronicWeek / 7.0 * 2 * 1.6 && last2 > 60) factors += Factor("Последние 2 дня были нагруженными", -8)
-            } else factors += Factor("Нагрузка: собираем вашу норму (нужно ~4 недели данных)", 0)
+                if (last2 > chronicWeek / 7.0 * 2 * 1.6 && last2 > 60) factors += Factor("Последние 2 дня были нагруженными", -8, "load")
+            } else factors += Factor("Нагрузка: собираем вашу норму (нужно ~4 недели данных)", 0, "load")
         } else missing += "тренировки за 4 недели"
 
         // ---- Recovery after the last hard session (own or from Samsung Health) ----
@@ -216,28 +218,31 @@ object Coach {
         val hoursSince = last?.let { (now - it.end) / 3600_000.0 }
         if (last != null && hoursSince != null) {
             val left = last.recoveryHours - hoursSince
-            if (left > 0) factors += Factor("После «${last.title}» прошло ${hoursSince.roundToInt()} ч из ~${last.recoveryHours} ч восстановления", -minOf(20, (left / 2).roundToInt() + 5))
+            if (left > 0) factors += Factor("После «${last.title}» прошло ${hoursSince.roundToInt()} ч из ~${last.recoveryHours} ч восстановления", -minOf(20, (left / 2).roundToInt() + 5), "load")
         }
         extNew.filter { it.trimp >= 80 && it.end > (last?.end ?: 0L) && now - it.end < 24 * 3600_000L }.maxByOrNull { it.end }?.let { e ->
-            factors += Factor("Вчера/сегодня: «${e.title}» ${e.minutes} мин — организм ещё восстанавливается", -8)
+            factors += Factor("Вчера/сегодня: «${e.title}» ${e.minutes} мин — организм ещё восстанавливается", -8, "load")
         }
 
         // ---- 5. How you feel (the most honest signal — the watch cannot feel for you) ----
         if (checkIn != null) {
             confidence++
             when (checkIn.feel) {
-                1 -> factors += Factor("Самочувствие: разбит", -30)
-                2 -> factors += Factor("Самочувствие: устал", -18)
-                3 -> factors += Factor("Самочувствие: обычное", -5)
-                else -> factors += Factor("Самочувствие: бодрое", 0)
+                1 -> factors += Factor("Самочувствие: разбит", -30, "feel")
+                2 -> factors += Factor("Самочувствие: устал", -18, "feel")
+                3 -> factors += Factor("Самочувствие: обычное", -5, "feel")
+                else -> factors += Factor("Самочувствие: бодрое", 0, "feel")
             }
             when (checkIn.soreness) {
-                2 -> { factors += Factor("Сильная боль в мышцах", -10); avoid += "Силовая на больные мышцы — дайте им 48–72 ч" }
-                1 -> factors += Factor("Мышцы немного болят", -3)
+                2 -> { factors += Factor("Сильная боль в мышцах", -10, "feel"); avoid += "Силовая на больные мышцы — дайте им 48–72 ч" }
+                1 -> factors += Factor("Мышцы немного болят", -3, "feel")
             }
         } else missing += "ваше самочувствие (ответьте на 2 вопроса)"
 
-        var score = (100 + factors.sumOf { it.points }).coerceIn(0, 100)
+        // Each area can take away only so much: several small minuses of one kind must not add up to "rest day".
+        val caps = mapOf("sleep" to 30, "rest" to 20, "hrv" to 30, "load" to 25, "feel" to 30)
+        val lost = factors.groupBy { it.group }.map { (g, l) -> minOf(-l.sumOf { it.points }, caps[g] ?: 100) }.sum()
+        var score = (100 - lost).coerceIn(0, 100)
         // Without enough data the app must not claim "excellent readiness".
         if (confidence <= 2) score = minOf(score, 74)
         var level = when { score >= 75 -> 0; score >= 50 -> 1; else -> 2 }

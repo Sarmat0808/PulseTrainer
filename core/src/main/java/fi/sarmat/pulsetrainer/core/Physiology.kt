@@ -83,7 +83,12 @@ object Physiology {
      * Muscles: 48 h between sessions for the same muscle group (72 h after very hard ones).
      * Heart: scales with the cardio load (TRIMP).
      */
+    /** A workout shorter than 5 minutes with fewer than 3 sets is a test start, not training. */
+    fun isRealWorkout(w: Workout): Boolean =
+        w.activeSec >= 300 || w.segments.sumOf { it.sets.size } >= 3
+
     fun recoveryHours(segments: List<Segment>): Int {
+        if (segments.sumOf { it.activeSec } < 300 && segments.sumOf { it.sets.size } < 3) return 0
         val trimp = segments.sumOf { it.trimp }
         val strengthSets = segments.filter { it.type.strength }.sumOf { it.sets.size }
         val cardio = when {

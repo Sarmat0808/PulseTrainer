@@ -68,6 +68,47 @@ object PhoneStore {
     /** Today's answer to "how do you feel?". */
     val checkIn = MutableStateFlow<CheckIn?>(null)
     val lastPassive = MutableStateFlow(0L)
+    /** Heart-rate samples of the last 36 h from Health Connect (for the energy curve). */
+    val hrRecent = MutableStateFlow<List<Pair<Long, Int>>>(emptyList())
+
+    /** Energy 0–100 now, with the day curve and what charged / drained it. */
+    fun energy(now: Long = System.currentTimeMillis()): fi.sarmat.pulsetrainer.core.Energy.Result {
+        val p = profile.value ?: fi.sarmat.pulsetrainer.core.Profile()
+        val today = days.value.lastOrNull()
+        val zone = java.time.ZoneId.systemDefault()
+        val dayStart = java.time.LocalDate.now().atStartOfDay(zone).toInstant().toEpochMilli()
+        val pToday = passive.value.firstOrNull { it.day == dayStart }
+        val wake = (today?.sleepEnd ?: pToday?.sleepEnd)?.takeIf { it in dayStart..now } ?: (dayStart + 7 * 3600_000L).coerceAtMost(now)
+        val restToday = today?.restHr ?: pToday?.restHr
+        val base = (days.value.filter { it.day < dayStart }.takeLast(14).mapNotNull { it.restHr } +
+            passive.value.filter { it.day < dayStart }.takeLast(14).mapNotNull { it.restHr }).takeIf { it.size >= 4 }?.average()
+        val rest = restToday ?: base?.toInt() ?: p.restHr ?: 60
+        val test = hrv.value.lastOrNull()?.takeIf { it.time >= dayStart }
+        val (m, parts) = fi.sarmat.pulsetrainer.core.Energy.morningCharge(p, today?.takeIf { it.sleepMin != null }, restToday, base, test, todayCheckIn())
+        // Strap/watch samples from PulseTrainer workouts fill gaps in Samsung's all-day pulse.
+        val own = workouts.value.filter { it.end >= wake }.flatMap { w -> w.hr.filterIndexed { i, _ -> i % 30 == 0 }.map { it.t to it.bpm } }
+        val samples = (hrRecent.value + own).sortedBy { it.first }
+        return fi.sarmat.pulsetrainer.core.Energy.compute(p, wake, now, samples, rest, m, parts)
+    }
+
+    /** Favourite workouts (★, up to 6), shared with the watch tiles. */
+    val favorites = MutableStateFlow<List<fi.sarmat.pulsetrainer.core.WorkoutType>>(emptyList())
+
+    private fun parseFav(s: String?): List<fi.sarmat.pulsetrainer.core.WorkoutType> =
+        (s ?: "").split(',').mapNotNull { n -> fi.sarmat.pulsetrainer.core.WorkoutType.entries.firstOrNull { it.name == n } }.take(6)
+
+    suspend fun setFavorites(ctx: Context, list: List<fi.sarmat.pulsetrainer.core.WorkoutType>) {
+        val l = list.distinct().take(6)
+        favorites.value = l
+        prefs.edit().putString("fav", l.joinToString(",") { it.name }).apply()
+        try {
+            val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
+            nodes.forEach { Wearable.getMessageClient(ctx).sendMessage(it.id, Protocol.PATH_FAV, l.joinToString(",") { t -> t.name }.toByteArray()).await() }
+        } catch (_: Exception) {}
+    }
+
+    /** Start a workout on the watch from the phone. */
+    suspend fun startOnWatch(ctx: Context, t: fi.sarmat.pulsetrainer.core.WorkoutType): Boolean = sendToWatch(ctx, Protocol.CMD_START + t.name)
     /** Last time anything arrived from the watch (epoch millis, 0 = never). */
     val lastWatchContact = MutableStateFlow(0L)
     val lastWorkoutReceived = MutableStateFlow(0L)
@@ -151,7 +192,9 @@ object PhoneStore {
     suspend fun pushCoachToWatch(ctx: Context) {
         try {
             val a = advise()
+            val en = try { energy() } catch (_: Exception) { null }
             val json = JSONObject().put("score", a.score).put("level", a.level).put("label", Coach.levelText(a))
+                .put("energy", en?.now ?: -1).put("energyLabel", en?.label ?: "")
                 .put("headline", a.headline).put("plan", JSONArray(a.plan.take(3))).put("t", System.currentTimeMillis()).toString()
             val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
             nodes.forEach { Wearable.getMessageClient(ctx).sendMessage(it.id, Protocol.PATH_COACH, json.toByteArray()).await() }
@@ -209,6 +252,9 @@ object PhoneStore {
         passive.value = WorkoutJson.passiveFromJson(prefs.getString("passive", null))
         lastPassive.value = prefs.getLong("lastPassive", 0L)
         checkIn.value = loadCheckIn()
+        favorites.value = parseFav(prefs.getString("fav", null)).ifEmpty {
+            with(fi.sarmat.pulsetrainer.core.WorkoutType) { listOf(STRENGTH, ELLIPTICAL, WALK, TREADMILL, STAIRS_HOME, PULL_UPS) }
+        }
         fontScale.value = prefs.getFloat("fontScale", 1.15f)
         lastWorkoutReceived.value = prefs.getLong("lastWorkoutRx", 0L)
         reload()
@@ -247,7 +293,7 @@ object PhoneStore {
     suspend fun refreshDays(ctx: Context) {
         val snap = try { HealthData.load(ctx, profile.value ?: fi.sarmat.pulsetrainer.core.Profile()) } catch (_: Exception) { null }
         if (snap != null && snap.days.isNotEmpty()) days.value = snap.days
-        if (snap != null) ext.value = snap.ext
+        if (snap != null) { ext.value = snap.ext; if (snap.hrRecent.isNotEmpty()) hrRecent.value = snap.hrRecent }
         // Every weight from Samsung Health scales / manual entries joins the log (one per day).
         val fromHc = (snap?.days ?: emptyList()).filter { it.weightKg != null }.map { WeightEntry(it.day + 8 * 3600_000L, it.weightKg!!) }
         if (fromHc.isNotEmpty()) {
@@ -329,6 +375,7 @@ object PhoneStore {
         if (path.startsWith(Protocol.PATH_PROFILE)) {
             touchWatch()
             saveProfile(map.getString("profile"), map.getString("hrv"), map.getString("stress"))
+            map.getString("fav")?.let { f -> parseFav(f).takeIf { it.isNotEmpty() }?.let { favorites.value = it; prefs.edit().putString("fav", f).apply() } }
             return null
         }
         if (path.startsWith(Protocol.PATH_PASSIVE)) {

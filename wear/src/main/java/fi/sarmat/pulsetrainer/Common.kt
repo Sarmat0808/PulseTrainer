@@ -119,3 +119,21 @@ fun ZoneBars(zoneSec: IntArray, modifier: Modifier = Modifier) {
 
 @Composable
 fun Spacer(h: Int) = androidx.compose.foundation.layout.Spacer(Modifier.height(h.dp).width(1.dp))
+
+/** Small one-colour sport pictogram (Material Icons, Round). */
+@Composable
+fun SportIcon(t: fi.sarmat.pulsetrainer.core.WorkoutType, size: Dp, color: Color = Color.White) {
+    val vec = androidx.compose.runtime.remember(t) {
+        androidx.compose.ui.graphics.vector.ImageVector.Builder(
+            defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f
+        ).apply {
+            (fi.sarmat.pulsetrainer.core.SportIcons.PATHS[fi.sarmat.pulsetrainer.core.SportIcons.of(t)] ?: emptyList()).forEach {
+                addPath(pathData = androidx.compose.ui.graphics.vector.addPathNodes(it), fill = androidx.compose.ui.graphics.SolidColor(Color.White))
+            }
+        }.build()
+    }
+    androidx.compose.foundation.Image(
+        androidx.compose.ui.graphics.vector.rememberVectorPainter(vec), contentDescription = null,
+        modifier = Modifier.size(size), colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(color)
+    )
+}

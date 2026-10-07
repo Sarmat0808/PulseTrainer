@@ -64,12 +64,39 @@ object WorkoutEngine {
         val segZoneSec: IntArray = IntArray(6),
         val finishedId: String? = null,
         val discarded: Boolean = false,
+        /** Completed sets in this exercise. */
+        val setsDone: Int = 0,
+        /** Quiet coach line at the bottom of the screen. */
+        val assist: String? = null,
+        /** 0 info, 1 good (ready), 2 warning. */
+        val assistLevel: Int = 0,
+        /** The coach suggests finishing the workout (shown until dismissed by finishing). */
+        val endAdvice: String? = null,
+        val autoPaused: Boolean = false,
+        val autoPauseOn: Boolean = false,
+        val kmAlertOn: Boolean = true,
+        val avgPaceSecPerKm: Int? = null,
+        val avgSpeedKmh: Double = 0.0,
+        val ascentM: Int = 0,
+        val lastLapSec: Int? = null,
+        val z23Min: Int = 0,
+        val trimp: Int = 0,
+        val warmup: Boolean = false,
+        val floors: Int = 0,
+        val descentM: Int = 0,
+        val steps: Int = 0,
+        /** Steps per minute over the last minute. */
+        val cadence: Int = 0,
+        /** Metres up per minute over the last minute (stairs). */
+        val vSpeed: Int = 0,
     )
 
     interface Hooks {
         val context: Context
         fun reconfigure(type: WorkoutType)
         fun watchBpm(): Int?
+        /** Barometer/steps of the current segment (null when the sensor is off). */
+        fun climb(): ClimbSensor?
         fun resetReps()
         fun stopped()
     }
@@ -135,6 +162,33 @@ object WorkoutEngine {
     private var curHr: Int? = null
     private var curFromStrap = false
 
+    // ----- automatic sets (by heart rate) -----
+    private val smooth = ArrayDeque<Int>()           // last 5 raw values
+    private val sHist = ArrayDeque<Pair<Long, Double>>() // smoothed HR, last 20 s
+    private var peakS = 0.0
+    private var peakT = 0L
+    private var troughS = 999.0
+    private var warmup = true
+    private var slowRests = 0
+    private var restReadyAt = 0
+
+    // ----- coach -----
+    private var endAdvice: String? = null
+    private var lastSafety = 0L
+    private var adviceAt = 0
+    private var nearMaxSec = 0
+
+    // ----- auto-pause / km -----
+    private var autoPauseOn = false
+    private var kmAlertOn = true
+    private var autoPaused = false
+    private val moveWin = ArrayDeque<Pair<Long, Location>>()
+    private var slowSec = 0
+    private var lastLapSec: Int? = null
+    private var ascent = 0.0
+    private var lastAlt: Double? = null
+    private val climbHist = ArrayDeque<Triple<Long, Double, Int>>() // time, ascent, steps
+
     // ================= public API =================
 
     fun start(t: WorkoutType) {
@@ -150,6 +204,7 @@ object WorkoutEngine {
         hr.clear(); trackPts.clear(); segments.clear()
         track.value = emptyList()
         usedStrap = false; usedWatch = false; tickNo = 0
+        endAdvice = null; lastSafety = 0L; nearMaxSec = 0
         beginSegment(t, sessionStart)
         publish()
     }
@@ -190,17 +245,35 @@ object WorkoutEngine {
         publish()
     }
 
+    fun setAutoPause(on: Boolean) {
+        autoPauseOn = on
+        Storage.setAutoPause(type, on)
+        if (!on) autoPaused = false
+        publish()
+    }
+
+    fun setKmAlert(on: Boolean) {
+        kmAlertOn = on
+        Storage.setKmAlert(type, on)
+        publish()
+    }
+
     fun adjustReps(d: Int) {
         reps = max(0, reps + d)
         publish()
     }
 
     fun onRep() {
-        if (!running || paused || type.mode != Mode.SETS || phase != Phase.WORK) return
+        if (!running || paused || type.mode != Mode.SETS) return
+        if (phase == Phase.REST) {
+            restReps++
+            if (restReps >= 3 && phaseSec >= 20) { startSet(System.currentTimeMillis() - 6000); reps = restReps; restReps = 0 }
+            publish(); return
+        }
         reps++
-        Haptics.tick()
         publish()
     }
+    private var restReps = 0
 
     fun adjustTreadSpeed(d: Double) {
         treadSpeed = (treadSpeed + d).coerceIn(1.0, 25.0)
@@ -261,7 +334,8 @@ object WorkoutEngine {
         curHr = cur
         curFromStrap = strap != null
 
-        if (!paused) {
+        if (type.gps && autoPauseOn) checkAutoPause()
+        if (!paused && !autoPaused) {
             activeSec++
             segActive++
             phaseSec++
@@ -286,6 +360,7 @@ object WorkoutEngine {
             }
         }
 
+        if (!paused) coachCheck(cur)
         tickNo++
         if (tickNo % 2 == 0) hooks?.let { try { PhoneLink.sendLive(it.context, live(true)) } catch (_: Exception) {} }
         publish()
@@ -296,6 +371,16 @@ object WorkoutEngine {
         if (loc.hasAccuracy() && loc.accuracy > 30f) { gpsFix = false; return }
         gpsFix = true
         val now = System.currentTimeMillis()
+        moveWin.addLast(now to loc)
+        while (moveWin.isNotEmpty() && now - moveWin.first().first > 12_000) moveWin.removeFirst()
+        if (autoPaused) { lastLoc = null; return }
+        if (loc.hasAltitude() && hooks?.climb()?.hasBaro != true) {
+            val a = loc.altitude
+            val prevA = lastAlt
+            if (prevA == null) lastAlt = a
+            else if (a - prevA >= 3) { ascent += a - prevA; lastAlt = a }
+            else if (prevA - a >= 3) lastAlt = a
+        }
         val prev = lastLoc
         if (prev == null) {
             lastLoc = loc
@@ -312,10 +397,13 @@ object WorkoutEngine {
             if (loc.hasAccuracy()) loc.accuracy else null))
         paceWin.addLast(now to segDist)
         while (paceWin.isNotEmpty() && now - paceWin.first().first > 30_000) paceWin.removeFirst()
-        if (type.lapM > 0 && segDist - lapStartDist >= type.lapM) {
+        val lapEvery = if (type.lapM > 0) type.lapM else 1000
+        if (segDist - lapStartDist >= lapEvery) {
             laps.add(Lap(lapStartT, now, segDist - lapStartDist))
+            lastLapSec = ((now - lapStartT) / 1000).toInt()
+            lapActiveMark = activeSec
             lapStartT = now; lapStartDist = segDist
-            Haptics.lap()
+            if (kmAlertOn) Haptics.lap()
         }
         if (trackPts.size % 3 == 0) track.value = trackPts.toList()
     }
@@ -346,6 +434,13 @@ object WorkoutEngine {
         gpsFix = false
         lapStartT = now; lapStartDist = 0.0
         paceWin.clear()
+        moveWin.clear(); slowSec = 0; autoPaused = false; lastLapSec = null; ascent = 0.0; lastAlt = null
+        climbHist.clear()
+        autoPauseOn = Storage.autoPause(t)
+        kmAlertOn = Storage.kmAlert(t)
+        smooth.clear(); sHist.clear(); peakS = 0.0; troughS = 999.0; warmup = true; slowRests = 0; restReps = 0
+        // Strength: start "resting" — the first set is detected by heart rate (no button needed).
+        if (t.mode == Mode.SETS) { phase = Phase.REST; phaseSec = 0; setNo = 0 }
         hooks?.reconfigure(t)
         hooks?.resetReps()
     }
@@ -382,37 +477,77 @@ object WorkoutEngine {
                 trimp = segTrimp,
                 avgHr = if (segHrN > 0) (segHrSum / segHrN).toInt() else 0,
                 maxHr = segMax,
+                ascentM = climbNow().first,
+                descentM = climbNow().second,
+                floors = floorsOf(climbNow().first, climbNow().third),
+                steps = climbNow().third,
             )
         )
     }
 
-    private fun endSet(now: Long) {
-        sets.add(SetRecord(setStart, now, reps, setPeak, null, null))
+    private fun endSet(end: Long) {
+        val now = System.currentTimeMillis()
+        val e = maxOf(minOf(end, now), minOf(setStart + 5000, now))
+        sets.add(SetRecord(setStart, e, reps, setPeak, null, null))
         phase = Phase.REST
-        phaseSec = 0
+        phaseSec = ((now - e) / 1000).toInt()
         restPeak = max(setPeak, curHr ?: 0)
+        troughS = 999.0
+        restReps = 0
         readyNotified = false; adviceGiven = false; advice = null; lastHrr60 = null
-        Haptics.tick()
     }
 
-    private fun startSet(now: Long) {
-        if (sets.isNotEmpty()) sets[sets.lastIndex] = sets.last().copy(restSec = phaseSec)
+    private fun startSet(start: Long) {
+        val now = System.currentTimeMillis()
+        if (sets.isNotEmpty()) sets[sets.lastIndex] = sets.last().copy(restSec = (phaseSec - ((now - start) / 1000).toInt()).coerceAtLeast(0))
+        if (sets.isNotEmpty() && !readyNotified && phaseSec >= SLOW_RECOVERY_SEC) slowRests++ else if (readyNotified) slowRests = 0
+        warmup = false
         phase = Phase.WORK
-        phaseSec = 0
+        phaseSec = ((now - start) / 1000).toInt()
         setNo++
-        setStart = now
+        setStart = start
         setPeak = 0
+        peakS = 0.0
         reps = 0
         advice = null
         hooks?.resetReps()
-        Haptics.tick()
+    }
+
+    /**
+     * Sets are found from the pulse, no button needed:
+     * - a set started when the smoothed pulse climbs ≥7 bpm above the rest trough and keeps rising
+     *   (it lags the effort by ~10 s, so the set start is moved back);
+     * - a set ended when the pulse drops ≥6 bpm below its peak (it peaks ~10 s after the last rep).
+     * The rep counter (pull-ups, push-ups, squats) also starts a set after 3 reps.
+     */
+    private fun autoDetect(now: Long, cur: Int?) {
+        if (cur == null) return
+        smooth.addLast(cur); while (smooth.size > 5) smooth.removeFirst()
+        val sv = smooth.average()
+        sHist.addLast(now to sv); while (sHist.isNotEmpty() && now - sHist.first().first > 20_000) sHist.removeFirst()
+        val ago5 = sHist.firstOrNull { now - it.first <= 6_000 }?.second ?: sv
+        if (phase == Phase.WORK) {
+            if (sv > peakS) { peakS = sv; peakT = now }
+            if (phaseSec >= 15 && peakS - sv >= 6 && sv < ago5) {
+                endSet(peakT - 8_000)
+            } else if (phaseSec >= 240) {
+                // Long steady effort without a drop: treat as one long set.
+                endSet(now)
+            }
+        } else {
+            if (sv < troughS) troughS = sv
+            val minGap = if (warmup) 20 else 30
+            if (phaseSec >= minGap && sv - troughS >= 7 && sv - ago5 >= 3) startSet(now - 10_000)
+        }
     }
 
     private fun tickSets(now: Long, cur: Int?) {
+        autoDetect(now, cur)
         if (phase == Phase.WORK) {
             if (cur != null) setPeak = max(setPeak, cur)
             return
         }
+        if (warmup) return
         // REST
         if (cur != null) restPeak = max(restPeak, if (phaseSec <= 10) cur else 0)
         if (phaseSec == 60 && cur != null && sets.isNotEmpty()) {
@@ -423,12 +558,12 @@ object WorkoutEngine {
         val ready = isRestReady(cur)
         if (ready && !readyNotified) {
             readyNotified = true
-            Haptics.ready()
+            restReadyAt = phaseSec
+            Haptics.tick() // one short, gentle tick — not an alarm
         }
         if (!ready && phaseSec >= SLOW_RECOVERY_SEC && !adviceGiven) {
             adviceGiven = true
-            advice = "Пульс снижается медленно. Следующий подход — легче или отдохните ещё."
-            Haptics.warn()
+            advice = "Пульс падает медленно — отдохните ещё или облегчите подход"
         }
     }
 
@@ -468,6 +603,96 @@ object WorkoutEngine {
         }
     }
 
+    private fun climbNow(): Triple<Double, Double, Int> {
+        val c = hooks?.climb()
+        return if (c != null && c.hasBaro) Triple(c.ascent, c.descent, c.steps) else Triple(ascent, 0.0, c?.steps ?: 0)
+    }
+
+    /** Floors: 3 m of climbing; on a stair machine (no height change) 16 steps = 1 floor. */
+    private fun floorsOf(asc: Double, steps: Int) = if (type == WorkoutType.STAIRS) steps / 16 else (asc / 3.0).toInt()
+
+    private fun checkAutoPause() {
+        if (moveWin.size < 2) return
+        val (t0, a) = moveWin.first(); val (t1, b) = moveWin.last()
+        val dt = (t1 - t0) / 1000.0
+        if (dt < 5) return
+        val kmh = a.distanceTo(b) / dt * 3.6
+        val stopAt = if (type == WorkoutType.BIKE_OUTDOOR) 3.0 else 1.2
+        if (!autoPaused) {
+            if (kmh < stopAt) slowSec++ else slowSec = 0
+            if (slowSec >= 8) { autoPaused = true; slowSec = 0; Haptics.tick() }
+        } else if (kmh > stopAt + 1.0) {
+            autoPaused = false; lastLoc = null; Haptics.tick()
+        }
+    }
+
+    /**
+     * A personal coach in the background: quiet hints, and one vibration when it is time to stop.
+     * Based on: 60–75 min as the useful limit for a strength session; slowing heart-rate recovery
+     * between sets as a sign of fatigue; staying near max heart rate as a safety signal.
+     */
+    private fun coachCheck(cur: Int?) {
+        val now = System.currentTimeMillis()
+        val max = Physiology.maxHr(profile)
+        if (cur != null && cur >= max * 0.97) nearMaxSec++ else nearMaxSec = 0
+        if (nearMaxSec >= 45 && now - lastSafety > 5 * 60_000L) {
+            lastSafety = now
+            advice = "Пульс у максимума ($cur) — сбавьте темп и подышите"
+            adviceAt = activeSec
+            Haptics.warn()
+        }
+        if (endAdvice != null || activeSec % 30 != 0) return
+        val min = activeSec / 60
+        val strength = type.mode == Mode.SETS
+        val hrr = (segments.flatMap { it.sets } + sets).mapNotNull { it.hrr60 }
+        val msg = when {
+            strength && min >= 75 -> "Уже $min мин силовой — пора заканчивать: дальше качество подходов падает"
+            strength && hrr.size >= 6 && hrr.takeLast(3).average() < hrr.take(3).average() * 0.6 ->
+                "Восстановление пульса упало почти вдвое — на сегодня достаточно"
+            strength && slowRests >= 2 -> "Пульс уже два раза долго не восстанавливается — лучше закончить"
+            !strength && type == WorkoutType.WALK && min >= 120 -> "2 часа ходьбы — отличный объём, можно заканчивать"
+            !strength && type != WorkoutType.WALK && type.mode == Mode.CARDIO && min >= 90 -> "$min мин — хороший объём. Можно заканчивать, выпейте воды"
+            else -> null
+        }
+        if (msg != null) { endAdvice = msg; Haptics.warn() }
+    }
+
+    private fun assist(cur: Int?): Pair<String?, Int> {
+        endAdvice?.let { return "Тренер: $it" to 2 }
+        if (advice != null && type.mode != Mode.SETS && activeSec - adviceAt > 40) advice = null
+        advice?.let { return it to 2 }
+        if (autoPaused) return "Автопауза — начните движение" to 0
+        return when (type.mode) {
+            Mode.SETS -> when {
+                warmup && phase == Phase.REST -> "Разминка. Подходы отметятся сами по пульсу" to 0
+                phase == Phase.WORK -> "Подход ${setNo}: ${fmtDurationShort(phaseSec)}" to 0
+                isRestReady(cur) -> "✓ Можно подход" + (lastHrr60?.let { " · пульс −$it за мин" } ?: "") to 1
+                else -> {
+                    val parts = ArrayList<String>()
+                    if (phaseSec < type.minRestSec) parts += "ещё ${type.minRestSec - phaseSec} с"
+                    if (cur != null && cur > readyHr) parts += "пульс до $readyHr"
+                    "Отдых: " + parts.joinToString(" · ") to 0
+                }
+            }
+            Mode.ROUNDS -> null to 0
+            Mode.CARDIO -> {
+                val z = cur?.let { Physiology.zoneOf(it, bounds) } ?: 0
+                when {
+                    lastLapSec != null && type.gps && (activeSec - lapEndActive) < 40 ->
+                        "Км ${laps.size}: ${fmtDurationShort(lastLapSec!!)}" to 1
+                    z >= 4 && type != WorkoutType.RUN -> "Зона $z — тяжело. Для сердца держите ${bounds[1]}–${bounds[2]}" to 2
+                    z <= 1 && activeSec > 300 -> "Ниже зоны 2 — можно прибавить до ${bounds[1]}+" to 0
+                    z in 2..3 -> "Зона $z — то, что нужно для сердца" to 1
+                    else -> null to 0
+                }
+            }
+        }
+    }
+    private val lapEndActive: Int get() = lapActiveMark
+    private var lapActiveMark = 0
+
+    private fun fmtDurationShort(sec: Int) = fi.sarmat.pulsetrainer.core.fmtDuration(sec)
+
     private fun pace(): Pair<Int?, Double> {
         if (type.treadmill) {
             val sp = treadSpeed
@@ -489,6 +714,15 @@ object WorkoutEngine {
         val (pace, speed) = pace()
         val totalKcal = segments.sumOf { it.kcalTotal } + segKcal
         val avg = if (hr.isEmpty()) 0 else (hr.sumOf { it.bpm.toLong() } / hr.size).toInt()
+        val a = assist(cur)
+        val (asc, desc, stp) = climbNow()
+        val nowT = System.currentTimeMillis()
+        climbHist.addLast(Triple(nowT, asc, stp))
+        while (climbHist.isNotEmpty() && nowT - climbHist.first().first > 60_000) climbHist.removeFirst()
+        val h0 = climbHist.first()
+        val win = ((nowT - h0.first) / 60000.0).coerceAtLeast(1.0 / 60)
+        val cad = if (nowT - h0.first >= 20_000) ((stp - h0.third) / win).toInt() else 0
+        val vs = if (nowT - h0.first >= 20_000) ((asc - h0.second) / win).toInt() else 0
         ui.value = Ui(
             running = true,
             paused = paused,
@@ -507,7 +741,7 @@ object WorkoutEngine {
             setNo = setNo,
             phaseSec = phaseSec,
             reps = reps,
-            restReady = phase == Phase.REST && isRestReady(cur),
+            restReady = phase == Phase.REST && !warmup && isRestReady(cur),
             readyHr = readyHr,
             minRest = type.minRestSec,
             advice = advice,
@@ -521,6 +755,25 @@ object WorkoutEngine {
             treadSpeed = treadSpeed,
             lapNo = laps.size + 1,
             segZoneSec = segZone.copyOf(),
+            setsDone = sets.size,
+            assist = a.first,
+            assistLevel = a.second,
+            endAdvice = endAdvice,
+            autoPaused = autoPaused,
+            autoPauseOn = autoPauseOn,
+            kmAlertOn = kmAlertOn,
+            avgPaceSecPerKm = if (segDist > 50) (segActive / (segDist / 1000.0)).toInt() else null,
+            avgSpeedKmh = if (segActive > 0) segDist / segActive * 3.6 else 0.0,
+            ascentM = asc.toInt(),
+            descentM = desc.toInt(),
+            floors = floorsOf(asc, stp),
+            steps = stp,
+            cadence = cad,
+            vSpeed = vs,
+            lastLapSec = lastLapSec,
+            z23Min = (segZone[2] + segZone[3]) / 60,
+            trimp = (segments.sumOf { it.trimp } + segTrimp).toInt(),
+            warmup = warmup && type.mode == Mode.SETS,
         )
     }
 

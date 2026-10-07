@@ -39,6 +39,7 @@ object WorkoutJson {
             so.put("trimp", s.trimp)
             so.put("avgHr", s.avgHr)
             so.put("maxHr", s.maxHr)
+            so.put("ascent", s.ascentM).put("descent", s.descentM).put("floors", s.floors).put("steps", s.steps)
             val sets = JSONArray()
             s.sets.forEach {
                 sets.put(
@@ -105,6 +106,10 @@ object WorkoutJson {
                 trimp = so.optDouble("trimp", 0.0),
                 avgHr = so.optInt("avgHr"),
                 maxHr = so.optInt("maxHr"),
+                ascentM = so.optDouble("ascent", 0.0),
+                descentM = so.optDouble("descent", 0.0),
+                floors = so.optInt("floors"),
+                steps = so.optInt("steps"),
             )
         }
         return Workout(
@@ -187,7 +192,7 @@ object WorkoutJson {
             a.put(
                 JSONObject().put("day", it.day).putOpt2("rest", it.restHr).putOpt2("night", it.nightAvg)
                     .putOpt2("ss", it.sleepStart).putOpt2("se", it.sleepEnd).putOpt2("steps", it.steps)
-                    .putOpt2("min", it.hrMin).putOpt2("max", it.hrMax).putOpt2("avg", it.dayAvg)
+                    .putOpt2("min", it.hrMin).putOpt2("max", it.hrMax).putOpt2("avg", it.dayAvg).putOpt2("floors", it.floors)
             )
         }
         return a.toString()
@@ -200,7 +205,7 @@ object WorkoutJson {
                 val x = a.getJSONObject(it)
                 PassiveDay(
                     x.getLong("day"), x.intOrNull("rest"), x.intOrNull("night"), x.longOrNull("ss"), x.longOrNull("se"),
-                    x.longOrNull("steps"), x.intOrNull("min"), x.intOrNull("max"), x.intOrNull("avg"),
+                    x.longOrNull("steps"), x.intOrNull("min"), x.intOrNull("max"), x.intOrNull("avg"), x.intOrNull("floors"),
                 )
             }
         }
@@ -214,6 +219,7 @@ object Protocol {
     const val PATH_CONTROL = "/control"           // phone -> watch commands
     const val PATH_PROFILE = "/profile"           // DataItem: profile + morning tests (for reports)
     const val PATH_PROFILE_SET = "/control/profile" // phone -> watch: profile edited on the phone
+    const val PATH_FAV = "/control/fav"           // phone -> watch: favourite workouts (comma-separated)
     const val PATH_COACH = "/control/coach"       // phone -> watch: today's readiness and plan (JSON)
     const val PATH_PASSIVE = "/passive"           // DataItem: background data from the watch (night pulse, steps)
 
@@ -223,6 +229,7 @@ object Protocol {
     const val CMD_DISCARD = "discard"
     const val CMD_SWITCH = "switch:"              // + WorkoutType.name
     const val CMD_NEXT = "next"                   // finish set / start next set
+    const val CMD_START = "start:"                // + WorkoutType.name — start a workout on the watch
 
     data class Live(
         val running: Boolean,

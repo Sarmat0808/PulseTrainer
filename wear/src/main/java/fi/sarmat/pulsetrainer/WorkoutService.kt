@@ -49,6 +49,9 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
 
     private var tickJob: Job? = null
     private lateinit var watchHr: WatchHr
+    private lateinit var exerciseHr: ExerciseHr
+    private lateinit var climbSensor: ClimbSensor
+    private var climbOn = false
     private lateinit var repCounter: RepCounter
     private var gpsOn = false
     private var wake: PowerManager.WakeLock? = null
@@ -56,6 +59,8 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
     override fun onCreate() {
         super.onCreate()
         watchHr = WatchHr(this)
+        exerciseHr = ExerciseHr(this)
+        climbSensor = ClimbSensor(this)
         repCounter = RepCounter(this) { WorkoutEngine.onRep() }
     }
 
@@ -66,6 +71,7 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
         WorkoutEngine.hooks = this
         HrSensor.connectSaved()
         watchHr.start()
+        exerciseHr.start(type)
         if (wake == null) {
             wake = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PulseTrainer:workout").apply { acquire(6 * 3600_000L) }
@@ -131,17 +137,24 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
     override fun reconfigure(type: WorkoutType) {
         if (type.gps) startGps() else stopGps()
         if (type.repCount) repCounter.start() else repCounter.stop()
+        if (type.climb || type.steps || type.gps) { climbSensor.start(); climbOn = true } else { climbSensor.stop(); climbOn = false }
+        climbSensor.reset()
     }
 
-    override fun watchBpm(): Int? = watchHr.fresh()
+    // Exercise mode first: it keeps running in the background; the others are backups.
+    override fun watchBpm(): Int? = exerciseHr.fresh() ?: watchHr.fresh()
 
     override fun resetReps() = repCounter.reset()
+
+    override fun climb(): ClimbSensor? = if (climbOn) climbSensor else null
 
     override fun stopped() {
         tickJob?.cancel(); tickJob = null
         stopGps()
         repCounter.stop()
         watchHr.stop()
+        exerciseHr.stop()
+        climbSensor.stop(); climbOn = false
         try { wake?.release() } catch (_: Exception) {}
         wake = null
         WorkoutEngine.hooks = null

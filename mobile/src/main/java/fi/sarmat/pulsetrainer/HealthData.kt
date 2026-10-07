@@ -70,7 +70,7 @@ object HealthData {
     /** Optional: not every Health Connect version knows them, so they never block "access granted". */
     val EXTRA_PERMISSIONS: Set<String> = setOf(READ_HISTORY, READ_BACKGROUND)
 
-    data class Snapshot(val days: List<DailyStats>, val ext: List<ExtWorkout>)
+    data class Snapshot(val days: List<DailyStats>, val ext: List<ExtWorkout>, val hrRecent: List<Pair<Long, Int>> = emptyList())
 
     private val zone: ZoneId get() = ZoneId.systemDefault()
 
@@ -306,7 +306,8 @@ object HealthData {
                 ext += ExtWorkout(a, b, typeTitle(r), strength, null, null, min * k, zoneSec, true)
             }
         }
-        return Snapshot(map.values.toList(), ext.sortedBy { it.start })
+        val recentFrom = System.currentTimeMillis() - 36 * 3600_000L
+        return Snapshot(map.values.toList(), ext.sortedBy { it.start }, samples.filter { it.first >= recentFrom })
     }
 
     /** Lowest 30-minute average heart rate during the night (needs ~2 h of samples). */

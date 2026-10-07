@@ -54,10 +54,17 @@ fun rememberCardLayout(tab: String, defaults: List<String>, moreDefaults: Set<St
 }
 
 /** Header button that opens the order / placement dialog. */
+/** Opens the profile & settings screen (set by the root). */
+val LocalOpenSettings = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
+
 @Composable
 fun ArrangeButton(tab: String, titles: Map<String, String>, moreDefaults: Set<String> = emptySet()) {
     var open by remember { mutableStateOf(false) }
-    TextButton(onClick = { open = true }) { Text("⇅ Настроить", fontSize = 16.sp) }
+    val settings = LocalOpenSettings.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = { open = true }) { Text("⇅", fontSize = 22.sp) }
+        TextButton(onClick = settings) { Text("⚙", fontSize = 24.sp) }
+    }
     if (open) ReorderDialog(tab, titles, moreDefaults) { open = false }
 }
 

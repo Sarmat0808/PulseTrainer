@@ -69,6 +69,7 @@ object Passive {
                     val types = HashSet<DataType<*, *>>()
                     if (DataType.HEART_RATE_BPM in supported && hasPermissions(ctx)) types.add(DataType.HEART_RATE_BPM)
                     if (DataType.STEPS_DAILY in supported && actOk) types.add(DataType.STEPS_DAILY)
+                    if (DataType.FLOORS_DAILY in supported && actOk) types.add(DataType.FLOORS_DAILY)
                     if (types.isEmpty() && !actOk) return@addListener
                     val config = PassiveListenerConfig.builder()
                         .setDataTypes(types)
@@ -120,6 +121,11 @@ object Passive {
         }
         saveBuckets(b)
         prefs.edit().putLong("lastData", System.currentTimeMillis()).apply()
+    }
+
+    @Synchronized
+    fun setFloors(day: Long, floors: Double) {
+        prefs.edit().putFloat("floors_$day", floors.toFloat()).apply()
     }
 
     @Synchronized
@@ -188,8 +194,9 @@ object Passive {
                 hrMin = dayB.minOfOrNull { it[2] } ?: old?.hrMin,
                 hrMax = dayB.maxOfOrNull { it[3] } ?: old?.hrMax,
                 dayAvg = if (dayB.isEmpty()) old?.dayAvg else dayB.sumOf { it[0] } / dayB.sumOf { it[1] }.coerceAtLeast(1),
+                floors = prefs.getFloat("floors_$d", -1f).takeIf { it >= 0 }?.toInt() ?: old?.floors,
             )
-            if (p.restHr != null || p.steps != null || p.hrMin != null) days += p
+            if (p.restHr != null || p.steps != null || p.hrMin != null || p.floors != null) days += p
         }
         prefs.edit().putString("days", WorkoutJson.passiveToJson(days)).apply()
         return days
@@ -225,6 +232,10 @@ class PassiveDataService : PassiveListenerService() {
                 val end = s.getEndInstant(boot).toEpochMilli()
                 val day = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if (end >= day) Passive.setSteps(day, s.value)
+            }
+            dataPoints.getData(DataType.FLOORS_DAILY).lastOrNull()?.let { f ->
+                val day = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                if (f.getEndInstant(boot).toEpochMilli() >= day) Passive.setFloors(day, f.value)
             }
             Passive.send(this)
         } catch (_: Throwable) {}

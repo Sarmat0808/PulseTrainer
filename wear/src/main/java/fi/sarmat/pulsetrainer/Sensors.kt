@@ -144,3 +144,129 @@ object Haptics {
     fun warn() = play(longArrayOf(0, 80, 80, 80, 80, 80))
     fun lap() = play(longArrayOf(0, 150, 100, 150))
 }
+
+/**
+ * Watch heart rate during a workout via Health Services *exercise* mode.
+ * Unlike the measure client and the raw sensor, an active exercise keeps delivering
+ * heart rate when the app is in the background (watch face shown, a call answered, the
+ * screen off), because the system itself keeps the sensor running for the workout.
+ */
+class ExerciseHr(private val ctx: Context) {
+    private val client = try { HealthServices.getClient(ctx).exerciseClient } catch (_: Throwable) { null }
+    @Volatile private var bpm: Int? = null
+    @Volatile private var at = 0L
+    private var active = false
+
+    private val callback = object : androidx.health.services.client.ExerciseUpdateCallback {
+        override fun onExerciseUpdateReceived(update: androidx.health.services.client.data.ExerciseUpdate) {
+            val v = update.latestMetrics.getData(DataType.HEART_RATE_BPM).lastOrNull()?.value ?: return
+            val r = v.roundToInt()
+            if (r in 30..230) { bpm = r; at = SystemClock.elapsedRealtime() }
+        }
+        override fun onLapSummaryReceived(lapSummary: androidx.health.services.client.data.ExerciseLapSummary) {}
+        override fun onRegistered() {}
+        override fun onRegistrationFailed(throwable: Throwable) {}
+        override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) {}
+    }
+
+    fun start(type: fi.sarmat.pulsetrainer.core.WorkoutType) {
+        val c = client ?: return
+        if (active) return
+        try {
+            c.setUpdateCallback(callback)
+            val config = androidx.health.services.client.data.ExerciseConfig(
+                exerciseType = exType(type),
+                dataTypes = setOf(DataType.HEART_RATE_BPM),
+                isAutoPauseAndResumeEnabled = false,
+                isGpsEnabled = false,
+            )
+            c.startExerciseAsync(config)
+            active = true
+        } catch (_: Throwable) {}
+    }
+
+    fun stop() {
+        val c = client ?: return
+        if (!active) return
+        try { c.endExerciseAsync() } catch (_: Throwable) {}
+        try { c.clearUpdateCallbackAsync(callback) } catch (_: Throwable) {}
+        active = false
+        bpm = null
+    }
+
+    fun fresh(): Int? = if (SystemClock.elapsedRealtime() - at < 10_000) bpm else null
+
+    private fun exType(t: fi.sarmat.pulsetrainer.core.WorkoutType): androidx.health.services.client.data.ExerciseType {
+        val E = androidx.health.services.client.data.ExerciseType
+        return when (t) {
+            fi.sarmat.pulsetrainer.core.WorkoutType.WALK -> E.WALKING
+            fi.sarmat.pulsetrainer.core.WorkoutType.RUN -> E.RUNNING
+            fi.sarmat.pulsetrainer.core.WorkoutType.TREADMILL -> E.RUNNING_TREADMILL
+            fi.sarmat.pulsetrainer.core.WorkoutType.BIKE_OUTDOOR -> E.BIKING
+            fi.sarmat.pulsetrainer.core.WorkoutType.BIKE_INDOOR -> E.BIKING_STATIONARY
+            fi.sarmat.pulsetrainer.core.WorkoutType.ELLIPTICAL -> E.ELLIPTICAL
+            fi.sarmat.pulsetrainer.core.WorkoutType.BOXING -> E.BOXING
+            fi.sarmat.pulsetrainer.core.WorkoutType.HIKING -> E.HIKING
+            else -> E.STRENGTH_TRAINING
+        }
+    }
+}
+
+/**
+ * Barometer + step counter for climbing workouts and walking/running.
+ * Height comes from air pressure (much more precise for floors than GPS altitude):
+ * smoothed, with a 1.5 m dead band so breathing and doors do not count as climbing.
+ * Sensors are batched by the system (values delivered every few seconds) to save battery.
+ */
+class ClimbSensor(ctx: Context) : SensorEventListener {
+    private val sm = ctx.getSystemService(SensorManager::class.java)
+    private var on = false
+    private var alt: Double? = null
+    private var ref: Double? = null
+    private var stepBase = -1f
+
+    @Volatile var ascent = 0.0; private set
+    @Volatile var descent = 0.0; private set
+    @Volatile var steps = 0; private set
+    @Volatile var hasBaro = false; private set
+    @Volatile var altitude: Double? = null; private set
+
+    fun start() {
+        if (on || sm == null) return
+        on = true
+        sm.getDefaultSensor(Sensor.TYPE_PRESSURE)?.let { sm.registerListener(this, it, 500_000, 4_000_000); hasBaro = true }
+        sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)?.let {
+            try { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL, 5_000_000) } catch (_: SecurityException) {}
+        }
+    }
+
+    fun stop() {
+        if (!on) return
+        sm?.unregisterListener(this)
+        on = false
+    }
+
+    /** New exercise segment: counting starts from zero. */
+    fun reset() { ascent = 0.0; descent = 0.0; steps = 0; stepBase = -1f; ref = alt }
+
+    override fun onSensorChanged(e: SensorEvent) {
+        when (e.sensor.type) {
+            Sensor.TYPE_PRESSURE -> {
+                val a = SensorManager.getAltitude(SensorManager.PRESSURE_STANDARD_ATMOSPHERE, e.values[0]).toDouble()
+                val s = alt?.let { it + (a - it) * 0.15 } ?: a
+                alt = s; altitude = s
+                val r = ref
+                if (r == null) ref = s
+                else if (s - r >= 1.5) { ascent += s - r; ref = s }
+                else if (r - s >= 1.5) { descent += r - s; ref = s }
+            }
+            Sensor.TYPE_STEP_COUNTER -> {
+                val v = e.values[0]
+                if (stepBase < 0) stepBase = v
+                steps = (v - stepBase).toInt()
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+}

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -254,5 +255,31 @@ fun StressContent(list: List<StressRecord>) {
         BulletText("Прогулка 15–20 мин на улице, особенно днём на свету.", Dim, 15)
         BulletText("Высокий стресс несколько дней подряд вместе с плохим сном — повод снизить нагрузку.", Dim, 15)
         BulletText("Замер сравнивает вариабельность пульса с вашей утренней нормой. Измеряйте сидя, молча, в одно и то же время.", Dim, 15)
+    }
+}
+
+// ======================= Sport pictograms =======================
+
+/** One-colour sport pictogram (Material Icons, Round) in an optional round badge. */
+@Composable
+fun SportIcon(t: fi.sarmat.pulsetrainer.core.WorkoutType, size: androidx.compose.ui.unit.Dp, color: Color = Color.White, badge: Color? = null) {
+    val vec = remember(t) {
+        androidx.compose.ui.graphics.vector.ImageVector.Builder(
+            defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f
+        ).apply {
+            (fi.sarmat.pulsetrainer.core.SportIcons.PATHS[fi.sarmat.pulsetrainer.core.SportIcons.of(t)] ?: emptyList()).forEach {
+                addPath(pathData = androidx.compose.ui.graphics.vector.addPathNodes(it), fill = androidx.compose.ui.graphics.SolidColor(Color.White))
+            }
+        }.build()
+    }
+    val img = @Composable { s: androidx.compose.ui.unit.Dp ->
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.graphics.vector.rememberVectorPainter(vec), contentDescription = t.title,
+            modifier = Modifier.size(s), colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(color)
+        )
+    }
+    if (badge == null) img(size)
+    else Box(Modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape).background(badge), contentAlignment = Alignment.Center) {
+        img(size * 0.6f)
     }
 }

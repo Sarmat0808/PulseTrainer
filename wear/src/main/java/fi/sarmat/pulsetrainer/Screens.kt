@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -65,14 +66,27 @@ fun ListScreen(content: ScalingLazyListScope.() -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ItemChip(label: String, sub: String? = null, color: Color = Colors.card, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
-    Column(
+fun ItemChip(
+    label: String, sub: String? = null, color: Color = Colors.card, icon: WorkoutType? = null,
+    star: Boolean = false, onLongClick: (() -> Unit)? = null, onClick: () -> Unit,
+) {
+    Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(color)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
-        if (sub != null) Text(sub, fontSize = 15.sp, color = Colors.dim, maxLines = 3)
+        if (icon != null) {
+            Box(Modifier.size(34.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF2D6CDF)), contentAlignment = Alignment.Center) {
+                SportIcon(icon, 22.dp, Color.White)
+            }
+            androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
+            if (sub != null) Text(sub, fontSize = 15.sp, color = Colors.dim, maxLines = 3)
+        }
+        if (star) Text("★", fontSize = 18.sp, color = Color(0xFFF2C94C), modifier = Modifier.padding(start = 4.dp))
     }
 }
 
@@ -92,6 +106,10 @@ fun typeHint(t: WorkoutType): String = t.note ?: when {
     t.mode == Mode.SETS && t.repCount -> "Подходы · автосчёт · отдых по пульсу"
     t.mode == Mode.SETS -> "Подходы · отдых по пульсу"
     t.mode == Mode.ROUNDS -> "Раунды ${fmtDuration(t.roundWork)} / ${fmtDuration(t.roundRest)}"
+    t == WorkoutType.STAIRS_HOME -> "Этажи · высота · темп подъёма"
+    t == WorkoutType.STAIRS_OUTDOOR -> "Этажи · высота · GPS-маршрут"
+    t == WorkoutType.STAIRS -> "Этажи по шагам · шаг/мин"
+    t.gps && t.climb -> "GPS · темп · высота · маршрут"
     t.gps -> "GPS · дистанция · темп · карта"
     t.treadmill -> "Скорость · зоны · калории"
     else -> "Зоны пульса · калории"
@@ -106,9 +124,10 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
     val running by WorkoutEngine.ui.collectAsState()
     val coachAll by Storage.coach.collectAsState()
     val types = remember { Storage.mainTypes() }
+    val fav by Storage.favorites.collectAsState()
     val moreCount = remember { Storage.moreTypes().size }
     val hrv = remember { Storage.todayHrv() }
-    val last = remember { Storage.lastWorkout() }
+    val last = remember { Storage.lastWorkout()?.takeIf { Physiology.isRealWorkout(it) } }
     val coach = coachAll?.takeIf { System.currentTimeMillis() - it.time < 20 * 3600_000L }
 
     ListScreen {
@@ -120,7 +139,8 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
             val lv = coach?.level ?: hrv?.status ?: -1
             val c = when (lv) { 0 -> Color(0xFF1F4D33); 1 -> Color(0xFF4D461F); 2 -> Color(0xFF4D1F1F); else -> Colors.card }
             when {
-                coach != null -> ItemChip("Готовность ${coach.score} · ${coach.label}", coach.headline, c) { open(Scr.Ready) }
+                coach != null -> ItemChip("Готовность ${coach.score} · ${coach.label}",
+                    (if (coach.energy >= 0) "Энергия ${coach.energy} · " else "") + coach.headline, c) { open(Scr.Ready) }
                 hrv != null -> ItemChip("Готовность сегодня", Physiology.READINESS_TEXT[hrv.status], c) { open(Scr.Hrv) }
                 else -> ItemChip("Утренний тест готовности", "2,5 мин лёжа · нажмите, чтобы начать", Colors.action) { open(Scr.Hrv) }
             }
@@ -145,11 +165,15 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
                 }
             }
         }
-        item { ListHeader { Text("Тренировки", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
-        items(types) { t ->
-            ItemChip(t.title, typeHint(t), onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
+        if (fav.isNotEmpty()) {
+            item { ListHeader { Text("★ Избранное", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF2C94C)) } }
+            items(fav) { t -> ItemChip(t.title, null, icon = t, star = true, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) } }
         }
-        item { Line("Долгое нажатие — переместить или убрать", Colors.dim, 14) }
+        item { ListHeader { Text("Все тренировки", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
+        items(types.filter { it !in fav }) { t ->
+            ItemChip(t.title, typeHint(t), icon = t, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
+        }
+        item { Line("Долгое нажатие — ★ избранное, порядок, убрать", Colors.dim, 14) }
         item { ItemChip("Другие виды спорта", "Футбол, бассейн, теннис и ещё $moreCount", Color(0xFF233142)) { open(Scr.More) } }
         item { ListHeader { Text("Здоровье", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
         item { ItemChip("Стресс", "Замер 1 мин сидя · дыхание", Color(0xFF2A2442)) { open(Scr.Stress) } }
@@ -173,6 +197,7 @@ fun ReadyScreen(open: (Scr) -> Unit) {
             val col = when (c.level) { 0 -> Colors.ready; 1 -> Colors.wait; else -> Colors.danger }
             item { Line("${c.score}", col, 40, bold = true) }
             item { Line(c.label, col, 16, bold = true) }
+            if (c.energy >= 0) item { Line("Энергия ${c.energy} · ${c.energyLabel}", Colors.action, 17, bold = true) }
             item { Line(c.headline, Color.White, 18, bold = true) }
             c.plan.forEach { p -> item { Card { Line(p, Color.White, 15) } } }
         }
@@ -191,7 +216,12 @@ fun ArrangeScreen(t: WorkoutType, onStart: (WorkoutType) -> Unit) {
     ListScreen {
         item { Line(t.title, Color.White, 17, bold = true) }
         if (inMain) item { Line("Место ${main.indexOf(t) + 1} из ${main.size}", Colors.dim, 14) }
-        item { ItemChip("▶ Начать", null, Colors.action) { onStart(t) } }
+        item { ItemChip("▶ Начать", null, Colors.action, icon = t) { onStart(t) } }
+        item {
+            val isFav = t in Storage.favorites.value
+            ItemChip(if (isFav) "★ Убрать из избранного" else "☆ В избранное", if (isFav) null else "До 6 тренировок: плитки и телефон",
+                if (isFav) Color(0xFF4D461F) else Colors.card) { Storage.toggleFavorite(t); tick++ }
+        }
         if (inMain) {
             item { ItemChip("↑ Выше", null) { Storage.move(t, -1); tick++ } }
             item { ItemChip("↓ Ниже", null) { Storage.move(t, 1); tick++ } }
@@ -212,7 +242,7 @@ fun MoreScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
         item { ListHeader { Text("Другие виды спорта", fontSize = 16.sp) } }
         item { Line("Нажмите — начать. Долгое нажатие — добавить в главное меню.", Colors.dim, 13) }
         items(list) { t ->
-            ItemChip(t.title, t.note ?: typeHint(t), onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
+            ItemChip(t.title, t.note ?: typeHint(t), icon = t, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
         }
     }
 }
@@ -300,7 +330,7 @@ fun SwitchScreen(onPick: (WorkoutType) -> Unit) {
         item { ListHeader { Text(if (ui.running) "Сменить на…" else "Начать") } }
         if (ui.running) item { Line("Сейчас: ${ui.type.title}", Colors.dim, 13) }
         items(types.filter { !ui.running || it != ui.type }) { t ->
-            ItemChip(t.title, typeHint(t)) { onPick(t) }
+            ItemChip(t.title, typeHint(t), icon = t) { onPick(t) }
         }
     }
 }
@@ -317,7 +347,15 @@ fun SummaryScreen(id: String, onDone: () -> Unit) {
         return
     }
     ListScreen {
-        item { Line(w.title, bold = true, size = 15) }
+        item {
+            val r = remember { fi.sarmat.pulsetrainer.core.Review.of(w, Storage.list(), Storage.profile.value) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                SportIcon(w.segments.maxByOrNull { it.activeSec }?.type ?: WorkoutType.OTHER, 26.dp, Colors.action)
+                Line(w.title, bold = true, size = 17)
+                Line(r.label + if (r.level >= 0) " · ${r.score}" else "",
+                    when (r.level) { 0 -> Colors.ready; 1 -> Colors.wait; 2 -> Colors.danger; else -> Colors.dim }, 15, bold = true)
+            }
+        }
         item { Line(dateFmt.format(Date(w.start)) + " · " + fmtDuration(w.activeSec), Colors.dim, 14) }
         item {
             Card {
@@ -332,7 +370,9 @@ fun SummaryScreen(id: String, onDone: () -> Unit) {
                     Spacer(4)
                     val zs = w.zoneSec
                     for (z in 5 downTo 1) if (zs[z] > 0) Line("${Physiology.ZONE_NAMES[z]}: ${fmtDuration(zs[z])}", Colors.zone[z], 13)
-                    Line("Нагрузка (TRIMP): ${w.trimp.toInt()} · ${w.hrSource}", Colors.dim, 12)
+                    if (w.floors > 0 || w.ascentM >= 3) Line("Этажей ${w.floors} · ↑ ${w.ascentM.toInt()} м · ↓ ${w.descentM.toInt()} м", Color.White, 15)
+                    if (w.steps > 0) Line("Шагов ${w.steps}", Color.White, 15)
+                    Line("Нагрузка (TRIMP): ${w.trimp.toInt()} · ${w.hrSource}", Colors.dim, 14)
                 }
             }
         }
@@ -378,7 +418,8 @@ fun HistoryScreen(open: (String) -> Unit) {
         item { ListHeader { Text("История") } }
         if (list.isEmpty()) item { Line("Пока нет тренировок", Colors.dim) }
         items(list) { w ->
-            ItemChip(w.title, dateFmt.format(Date(w.start)) + " · " + fmtDuration(w.activeSec) + " · ♥ ${w.avgHr}") { open(w.id) }
+            ItemChip(w.title, dateFmt.format(Date(w.start)) + " · " + fmtDuration(w.activeSec) + " · ♥ ${w.avgHr}",
+                icon = w.segments.maxByOrNull { it.activeSec }?.type) { open(w.id) }
         }
     }
 }

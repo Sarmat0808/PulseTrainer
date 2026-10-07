@@ -50,10 +50,18 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** Physical multi-function buttons (if the watch exposes them to apps) open the exercise switcher. */
         val stemPresses = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+        /** A workout to start right away (from a tile or from the phone). */
+        val pendingStart = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra("start")?.let { pendingStart.value = it }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        intent?.getStringExtra("start")?.let { pendingStart.value = it }
         setContent {
             // Larger, crisper text on the wrist (adjustable in Profile → «Размер шрифта»).
             val scale by Storage.fontScale.collectAsState()
@@ -138,6 +146,15 @@ fun AppRoot() {
         WorkoutService.start(ctx, t)
         stack.removeAll { it != Scr.Home }
         push(Scr.Workout)
+    }
+
+    val pending by MainActivity.pendingStart.collectAsState()
+    LaunchedEffect(pending) {
+        val name = pending ?: return@LaunchedEffect
+        MainActivity.pendingStart.value = null
+        val t = WorkoutType.of(name)
+        if (WorkoutEngine.ui.value.running) { WorkoutEngine.switchTo(t); stack.removeAll { it != Scr.Home }; push(Scr.Workout) }
+        else startWorkout(t)
     }
 
     val current = stack.last()

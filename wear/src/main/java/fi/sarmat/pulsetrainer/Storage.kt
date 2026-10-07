@@ -30,12 +30,15 @@ object Storage {
 
     val profile = MutableStateFlow(Profile())
 
+    fun ensureInit(ctx: Context) { if (!::prefs.isInitialized) init(ctx.applicationContext) }
+
     fun init(ctx: Context) {
         appCtx = ctx.applicationContext
         prefs = ctx.getSharedPreferences("pt", Context.MODE_PRIVATE)
         dir = File(ctx.filesDir, "workouts").apply { mkdirs() }
         profile.value = loadProfile()
         coach.value = parseCoach(prefs.getString("coach", null))
+        favorites.value = loadFav()
         fontScale.value = prefs.getFloat("font", 1.15f)
         PhoneLink.sendProfile(appCtx)
     }
@@ -170,6 +173,40 @@ object Storage {
         }
     }
 
+    // ---------- Favourites (★, up to 6) — shown in the watch tiles and on the phone ----------
+
+    val DEFAULT_FAV = listOf(WorkoutType.STRENGTH, WorkoutType.ELLIPTICAL, WorkoutType.WALK, WorkoutType.TREADMILL, WorkoutType.STAIRS_HOME, WorkoutType.PULL_UPS)
+
+    val favorites = MutableStateFlow<List<WorkoutType>>(emptyList())
+
+    private fun loadFav(): List<WorkoutType> {
+        val raw = prefs.getString("fav", null) ?: return DEFAULT_FAV
+        return raw.split(',').filter { it.isNotBlank() }.mapNotNull { n -> WorkoutType.entries.firstOrNull { it.name == n } }.take(6)
+    }
+
+    fun setFavorites(list: List<WorkoutType>, fromPhone: Boolean = false) {
+        val l = list.distinct().take(6)
+        prefs.edit().putString("fav", l.joinToString(",") { it.name }).apply()
+        favorites.value = l
+        FavTiles.refresh(appCtx)
+        if (!fromPhone) PhoneLink.sendProfile(appCtx)
+    }
+
+    fun toggleFavorite(t: WorkoutType) {
+        val cur = favorites.value
+        setFavorites(if (t in cur) cur - t else (cur + t).takeLast(6))
+    }
+
+    // ---------- Per-exercise settings ----------
+
+    /** Auto-pause (GPS workouts): stops time and distance when you stand still. Off by default. */
+    fun autoPause(t: WorkoutType): Boolean = prefs.getBoolean("ap_${t.name}", false)
+    fun setAutoPause(t: WorkoutType, on: Boolean) { prefs.edit().putBoolean("ap_${t.name}", on).apply() }
+
+    /** A short vibration every kilometre (every 5 km on the bike). On by default. */
+    fun kmAlert(t: WorkoutType): Boolean = prefs.getBoolean("km_${t.name}", true)
+    fun setKmAlert(t: WorkoutType, on: Boolean) { prefs.edit().putBoolean("km_${t.name}", on).apply() }
+
     // ---------- Stress ----------
 
     fun stressHistory(): List<StressRecord> = WorkoutJson.stressFromJson(prefs.getString("stress", null))
@@ -182,7 +219,8 @@ object Storage {
 
     // ---------- Readiness and plan from the phone's coach ----------
 
-    data class CoachInfo(val score: Int, val level: Int, val label: String, val headline: String, val plan: List<String>, val time: Long)
+    data class CoachInfo(val score: Int, val level: Int, val label: String, val headline: String, val plan: List<String>, val time: Long,
+                         val energy: Int = -1, val energyLabel: String = "")
 
     val coach = MutableStateFlow<CoachInfo?>(null)
 
@@ -195,7 +233,7 @@ object Storage {
         val o = org.json.JSONObject(json ?: "")
         val a = o.optJSONArray("plan")
         CoachInfo(o.getInt("score"), o.getInt("level"), o.optString("label"), o.optString("headline"),
-            (0 until (a?.length() ?: 0)).map { a!!.getString(it) }, o.optLong("t"))
+            (0 until (a?.length() ?: 0)).map { a!!.getString(it) }, o.optLong("t"), o.optInt("energy", -1), o.optString("energyLabel"))
     } catch (_: Exception) { null }
 
     /** Today's coach info (older than 20 h is not shown). */

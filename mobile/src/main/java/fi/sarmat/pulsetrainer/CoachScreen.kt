@@ -245,7 +245,7 @@ fun ProfileTab() {
     val changed = p != (stored ?: Profile())
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Профиль", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White) }
+        item { Text("Профиль и настройки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White) }
         item {
             Section {
                 Text("Цель", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)

@@ -42,6 +42,7 @@ import kotlin.math.roundToInt
 
 private val TODAY_CARDS = linkedMapOf(
     "ready" to "Готовность, самочувствие и план",
+    "energy" to "Энергия (как Body Battery)",
     "sleep" to "Сон",
     "activity" to "Активность и шаги",
     "trend" to "Куда я двигаюсь (прогресс)",
@@ -72,6 +73,10 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
     val passive by PhoneStore.passive.collectAsState()
     val stress by PhoneStore.stress.collectAsState()
     val check by PhoneStore.checkIn.collectAsState()
+    val hrRecent by PhoneStore.hrRecent.collectAsState()
+    var minuteTick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5 * 60_000L); minuteTick++ } }
+    val energy = remember(p, days, workouts, tests, check, passive, hrRecent, minuteTick) { PhoneStore.energy() }
     val foodV by FoodStore.version.collectAsState()
     val p = profile ?: Profile()
     val today = days.lastOrNull()
@@ -99,6 +104,25 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                 CheckInBlock()
                 Text("План, причины и чего избегать — вкладка «Тренер» →", color = Accent, fontSize = 15.sp,
                     modifier = Modifier.clickable { openTab(1) }.padding(top = 2.dp))
+            }
+            "energy" -> Tile {
+                TileTitle("Энергия")
+                val c = levelColor(energy.level)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Ring(energy.now / 100f, c, "${energy.now}", Modifier.size(84.dp))
+                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                        Text(energy.label, color = c, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Утром было ${energy.morning}", color = Dim, fontSize = 15.sp)
+                    }
+                }
+                EnergyChart(energy.series)
+                Text(energy.advice, color = Color.White, fontSize = 16.sp)
+                Expander("Что зарядило и что потратило") {
+                    energy.parts.forEach { pt ->
+                        VRow(pt.label, (if (pt.points > 0 && pt.label != "Утренний заряд" && !pt.label.startsWith("Сон")) "+" else "") + "${pt.points}", null)
+                    }
+                    energy.explain.forEach { BulletText(it, Dim, 15) }
+                }
             }
             "sleep" -> Tile {
                 TileTitle("Сон")
@@ -151,7 +175,7 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                 Row(Modifier.fillMaxWidth()) {
                     Mini(today?.activeKcal?.roundToInt()?.toString() ?: "—", "акт. ккал", Modifier.weight(1f))
                     Mini(today?.distanceM?.let { "%.1f".format(it / 1000) } ?: "—", "км", Modifier.weight(1f))
-                    Mini(today?.floors?.roundToInt()?.toString() ?: "—", "этажей", Modifier.weight(1f))
+                    Mini((today?.floors?.roundToInt() ?: passive.lastOrNull()?.takeIf { it.day == today?.day }?.floors)?.toString() ?: "—", "этажей", Modifier.weight(1f))
                 }
             }
             "trend" -> Tile {
@@ -305,5 +329,22 @@ private fun DayBars() {
                 Text(d.format(DateTimeFormatter.ofPattern("EE", Locale("ru"))), color = Dim, fontSize = 13.sp)
             }
         }
+    }
+}
+
+/** Energy through the day (0–100). */
+@Composable
+private fun EnergyChart(series: List<Pair<Long, Int>>) {
+    if (series.size < 2) return
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(70.dp)) {
+        val t0 = series.first().first; val t1 = series.last().first.coerceAtLeast(t0 + 1)
+        fun pt(t: Long, v: Int) = androidx.compose.ui.geometry.Offset((t - t0).toFloat() / (t1 - t0) * size.width, size.height * (1 - v / 100f))
+        val path = androidx.compose.ui.graphics.Path()
+        series.forEachIndexed { i, (t, v) -> val o = pt(t, v); if (i == 0) path.moveTo(o.x, o.y) else path.lineTo(o.x, o.y) }
+        val fill = androidx.compose.ui.graphics.Path().apply {
+            addPath(path); lineTo(size.width, size.height); lineTo(0f, size.height); close()
+        }
+        drawPath(fill, Accent.copy(alpha = 0.18f))
+        drawPath(path, Accent, style = androidx.compose.ui.graphics.drawscope.Stroke(5f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
     }
 }

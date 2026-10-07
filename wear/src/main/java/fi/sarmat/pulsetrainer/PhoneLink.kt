@@ -34,6 +34,7 @@ object PhoneLink {
                 dataMap.putString("profile", WorkoutJson.profileToJson(Storage.profile.value))
                 dataMap.putString("hrv", WorkoutJson.hrvToJson(Storage.hrvHistory()))
                 dataMap.putString("stress", WorkoutJson.stressToJson(Storage.stressHistory()))
+                dataMap.putString("fav", Storage.favorites.value.joinToString(",") { it.name })
                 dataMap.putLong("ts", System.currentTimeMillis())
             }.asPutDataRequest()
             Wearable.getDataClient(ctx).putDataItem(req)
@@ -60,6 +61,11 @@ object PhoneLink {
 /** Phone -> watch: switch exercise, pause, finish, next set. */
 class ControlListenerService : WearableListenerService() {
     override fun onMessageReceived(event: MessageEvent) {
+        if (event.path == Protocol.PATH_FAV) {
+            val list = String(event.data).split(',').mapNotNull { n -> WorkoutType.entries.firstOrNull { it.name == n } }
+            Handler(Looper.getMainLooper()).post { Storage.setFavorites(list, fromPhone = true) }
+            return
+        }
         if (event.path == Protocol.PATH_COACH) {
             val json = String(event.data)
             Handler(Looper.getMainLooper()).post { Storage.saveCoach(json) }
@@ -75,6 +81,13 @@ class ControlListenerService : WearableListenerService() {
         }
         if (event.path != Protocol.PATH_CONTROL) return
         val cmd = String(event.data)
+        if (cmd.startsWith(Protocol.CMD_START)) {
+            // Start a workout from the phone: open the app on the watch and begin.
+            val t = WorkoutType.of(cmd.removePrefix(Protocol.CMD_START))
+            startActivity(android.content.Intent(this, MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("start", t.name))
+            return
+        }
         Handler(Looper.getMainLooper()).post {
             val e = WorkoutEngine
             if (!e.ui.value.running) return@post
