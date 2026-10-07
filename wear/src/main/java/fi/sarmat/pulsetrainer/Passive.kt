@@ -202,14 +202,24 @@ object Passive {
         return days
     }
 
+    /** 5-minute pulse averages of the last 24 h: [[time, bpm], ...] — for the live energy curve on the phone. */
+    @Synchronized
+    fun recentHrJson(): String {
+        val cut = System.currentTimeMillis() - 24 * 3600_000L
+        val a = JSONArray()
+        buckets().filterKeys { it >= cut }.toSortedMap().forEach { (k, v) -> if (v[1] > 0) a.put(JSONArray().put(k + BUCKET / 2).put(v[0] / v[1])) }
+        return a.toString()
+    }
+
     /** Push the summary to the phone: at most once per hour unless [force]. */
     fun send(ctx: Context, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (!force && now - prefs.getLong("sent", 0L) < 3600_000L) return
+        if (!force && now - prefs.getLong("sent", 0L) < 30 * 60_000L) return
         prefs.edit().putLong("sent", now).apply()
         try {
             val req = PutDataMapRequest.create(Protocol.PATH_PASSIVE).apply {
                 dataMap.putString("days", WorkoutJson.passiveToJson(summaries()))
+                dataMap.putString("hr", recentHrJson())
                 dataMap.putLong("ts", now)
             }.asPutDataRequest()
             Wearable.getDataClient(ctx).putDataItem(req)

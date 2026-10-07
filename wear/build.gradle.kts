@@ -12,8 +12,8 @@ android {
         applicationId = "fi.sarmat.pulsetrainer"
         minSdk = 30
         targetSdk = 34
-        versionCode = 31
-        versionName = "3.1"
+        versionCode = 32
+        versionName = "3.2"
     }
 
     signingConfigs {
@@ -69,6 +69,7 @@ dependencies {
     implementation("com.google.guava:guava:32.1.3-android")
 
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 }

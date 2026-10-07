@@ -222,6 +222,7 @@ object Protocol {
     const val PATH_PROFILE_SET = "/control/profile" // phone -> watch: profile edited on the phone
     const val PATH_FAV = "/control/fav"           // phone -> watch: favourite workouts (comma-separated)
     const val PATH_COACH = "/control/coach"       // phone -> watch: today's readiness and plan (JSON)
+    const val PATH_ECG = "/ecg/"                  // DataItem: an ECG recording from the H10 (asset "json")
     const val PATH_PASSIVE = "/passive"           // DataItem: background data from the watch (night pulse, steps)
 
     const val CMD_PAUSE = "pause"
@@ -230,6 +231,8 @@ object Protocol {
     const val CMD_DISCARD = "discard"
     const val CMD_SWITCH = "switch:"              // + WorkoutType.name
     const val CMD_NEXT = "next"                   // finish set / start next set
+    const val CMD_SYNC = "sync"                   // phone -> watch: send fresh background data now
+    const val CMD_OPEN = "open:"                  // + screen name (e.g. "stress") — open a screen on the watch
     const val CMD_START = "start:"                // + WorkoutType.name — start a workout on the watch
 
     data class Live(

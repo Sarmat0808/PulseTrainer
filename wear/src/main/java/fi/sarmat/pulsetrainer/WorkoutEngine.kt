@@ -714,6 +714,8 @@ object WorkoutEngine {
         if (advice != null && type.mode != Mode.SETS && activeSec - adviceAt > 40) advice = null
         advice?.let { return it to 2 }
         if (autoPaused) return "Автопауза — начните движение" to 0
+        if (HrSensor.isConnected() && HrSensor.contactLost.value) return "Ремень: нет контакта — смочите электроды, пульс с часов" to 2
+        HrSensor.battery.value?.takeIf { it in 0..10 && activeSec < 120 }?.let { return "Батарея ремня $it% — скоро заменить (CR2025)" to 2 }
         if (type.gps && !gpsFix) return (if (hooks?.gpsOff() == true) "Включите «Местоположение» в настройках часов" else "Поиск GPS… лучше на открытом месте") to 2
         return when (type.mode) {
             Mode.SETS -> when {

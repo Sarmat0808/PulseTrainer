@@ -71,6 +71,25 @@ object PhoneStore {
     /** Heart-rate samples of the last 36 h from Health Connect (for the energy curve). */
     val hrRecent = MutableStateFlow<List<Pair<Long, Int>>>(emptyList())
 
+    fun recovery(): fi.sarmat.pulsetrainer.core.Health.Recovery =
+        fi.sarmat.pulsetrainer.core.Health.recovery(workouts.value, ext.value, days.value, passive.value, todayCheckIn(), stress.value)
+
+    /** ECG recordings from the Polar H10 (via the watch). */
+    val ecgs = MutableStateFlow<List<fi.sarmat.pulsetrainer.core.EcgRecord>>(emptyList())
+    private fun ecgDir() = File(appCtx!!.filesDir, "ecg").apply { mkdirs() }
+    fun loadEcgs() {
+        ecgs.value = (ecgDir().listFiles() ?: emptyArray()).sortedBy { it.name }
+            .mapNotNull { fi.sarmat.pulsetrainer.core.Ecg.fromJson(it.readText()) }
+    }
+
+    /** Watch's own 5-minute pulse averages of the last day (sent with the background data). */
+    val watchHr = MutableStateFlow<List<Pair<Long, Int>>>(emptyList())
+
+    /** Light refresh for the live energy curve: only the last hours of pulse from Health Connect. */
+    suspend fun refreshRecent(ctx: Context) {
+        try { HealthData.recentHr(ctx)?.let { if (it.isNotEmpty()) hrRecent.value = it } } catch (_: Exception) {}
+    }
+
     /** Energy 0–100 now, with the day curve and what charged / drained it. */
     fun energy(now: Long = System.currentTimeMillis()): fi.sarmat.pulsetrainer.core.Energy.Result {
         val p = profile.value ?: fi.sarmat.pulsetrainer.core.Profile()
@@ -87,7 +106,7 @@ object PhoneStore {
         val (m, parts) = fi.sarmat.pulsetrainer.core.Energy.morningCharge(p, today?.takeIf { it.sleepMin != null }, restToday, base, test, todayCheckIn())
         // Strap/watch samples from PulseTrainer workouts fill gaps in Samsung's all-day pulse.
         val own = workouts.value.filter { it.end >= wake }.flatMap { w -> w.hr.filterIndexed { i, _ -> i % 30 == 0 }.map { it.t to it.bpm } }
-        val samples = (hrRecent.value + own).sortedBy { it.first }
+        val samples = (hrRecent.value + own + watchHr.value).sortedBy { it.first }
         return fi.sarmat.pulsetrainer.core.Energy.compute(p, wake, now, samples, rest, m, parts)
     }
 
@@ -156,6 +175,20 @@ object PhoneStore {
         prefs.edit().putFloat("fontScale", fontScale.value).apply()
     }
 
+    /** Resting pulse taken automatically from night pulse / morning tests. */
+    var autoRest: Boolean
+        get() = prefs.getBoolean("autoRest", true)
+        set(v) { prefs.edit().putBoolean("autoRest", v).apply() }
+
+    /** Median of the last 7 nights' resting pulse (Samsung Health or PulseTrainer's own night pulse), else morning tests. */
+    fun autoRestValue(): Int? {
+        val nights = (days.value.mapNotNull { d -> d.restHr?.let { d.day to it } } + passive.value.mapNotNull { d -> d.restHr?.let { d.day to it } })
+            .groupBy { it.first }.map { it.value.first().second }.takeLast(7)
+        val src = nights.ifEmpty { hrv.value.takeLast(7).map { it.restHr }.filter { it in 35..100 } }
+        if (src.size < 3) return null
+        return src.sorted()[src.size / 2]
+    }
+
     var remindMorningHour: Int
         get() = prefs.getInt("remindHour", 8)
         set(v) { prefs.edit().putInt("remindHour", v).apply() }
@@ -195,6 +228,7 @@ object PhoneStore {
             val en = try { energy() } catch (_: Exception) { null }
             val json = JSONObject().put("score", a.score).put("level", a.level).put("label", Coach.levelText(a))
                 .put("energy", en?.now ?: -1).put("energyLabel", en?.label ?: "")
+                .put("recH", try { recovery().hoursLeft } catch (_: Exception) { -1 })
                 .put("headline", a.headline).put("plan", JSONArray(a.plan.take(3))).put("t", System.currentTimeMillis()).toString()
             val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
             nodes.forEach { Wearable.getMessageClient(ctx).sendMessage(it.id, Protocol.PATH_COACH, json.toByteArray()).await() }
@@ -236,6 +270,7 @@ object PhoneStore {
         appCtx = ctx.applicationContext
         Backup.loadInfo(ctx)
         dir = File(ctx.filesDir, "workouts").apply { mkdirs() }
+        try { loadEcgs() } catch (_: Exception) {}
         prefs = ctx.getSharedPreferences("pt", Context.MODE_PRIVATE)
         profile.value = WorkoutJson.profileFromJson(prefs.getString("profile", null))
         hrv.value = WorkoutJson.hrvFromJson(prefs.getString("hrv", null))
@@ -281,7 +316,7 @@ object PhoneStore {
     /** Profile edited on the phone: save, log weight, send to the watch, write weight to Health Connect. */
     suspend fun updateProfile(ctx: Context, p: Profile) {
         val old = profile.value
-        val json = WorkoutJson.profileToJson(p)
+        val json = JSONObject(WorkoutJson.profileToJson(p)).put("autoRest", autoRest).toString()
         prefs.edit().putString("profile", json).apply()
         profile.value = p
         if (old == null || kotlin.math.abs(old.weightKg - p.weightKg) > 0.05) {
@@ -296,7 +331,7 @@ object PhoneStore {
 
     suspend fun refreshDays(ctx: Context) {
         val snap = try { HealthData.load(ctx, profile.value ?: fi.sarmat.pulsetrainer.core.Profile()) } catch (_: Exception) { null }
-        if (snap != null && snap.days.isNotEmpty()) days.value = snap.days
+        if (snap != null && snap.days.isNotEmpty()) days.value = mergeWatch(snap.days)
         if (snap != null) { ext.value = snap.ext; if (snap.hrRecent.isNotEmpty()) hrRecent.value = snap.hrRecent }
         // Every weight from Samsung Health scales / manual entries joins the log (one per day).
         val fromHc = (snap?.days ?: emptyList()).filter { it.weightKg != null }.map { WeightEntry(it.day + 8 * 3600_000L, it.weightKg!!) }
@@ -308,7 +343,38 @@ object PhoneStore {
                 saveWeights()
             }
         }
+        // Auto resting pulse follows your nights.
+        if (autoRest) autoRestValue()?.let { r ->
+            val cur = profile.value
+            if (cur != null && cur.restHr != r) updateProfile(ctx, cur.copy(restHr = r))
+        }
         pushCoachToWatch(ctx)
+    }
+
+    /**
+     * Works without Samsung Health: where Health Connect has no sleep / resting pulse / steps for a day,
+     * PulseTrainer's own background data from the watch fills them in.
+     */
+    fun mergeWatch(list: List<DailyStats>): List<DailyStats> {
+        val pd = passive.value.associateBy { it.day }
+        val merged = list.map { d ->
+            val p = pd[d.day] ?: return@map d
+            val sl = if (d.sleepMin == null && p.sleepStart != null && p.sleepEnd != null && p.sleepEnd > p.sleepStart)
+                ((p.sleepEnd - p.sleepStart) / 60000).toInt() else null
+            d.copy(
+                sleepMin = d.sleepMin ?: sl,
+                sleepStart = d.sleepStart ?: p.sleepStart, sleepEnd = d.sleepEnd ?: p.sleepEnd,
+                restHr = d.restHr ?: p.restHr, steps = d.steps ?: p.steps,
+                hrMin = d.hrMin ?: p.hrMin, hrMax = d.hrMax ?: p.hrMax, hrAvg = d.hrAvg ?: p.dayAvg,
+                floors = d.floors ?: p.floors?.toDouble(),
+            )
+        }
+        val known = merged.map { it.day }.toSet()
+        val extra = pd.values.filter { it.day !in known }.map { p ->
+            DailyStats(p.day, sleepMin = if (p.sleepStart != null && p.sleepEnd != null) ((p.sleepEnd - p.sleepStart) / 60000).toInt() else null,
+                restHr = p.restHr, steps = p.steps, sleepStart = p.sleepStart, sleepEnd = p.sleepEnd, floors = p.floors?.toDouble())
+        }
+        return (merged + extra).sortedBy { it.day }
     }
 
     private fun saveWeights() {
@@ -360,7 +426,11 @@ object PhoneStore {
         }
     }
 
-    fun savePassive(json: String?) {
+    fun savePassive(json: String?, hrJson: String? = null) {
+        if (hrJson != null) try {
+            val a = JSONArray(hrJson)
+            watchHr.value = (0 until a.length()).map { a.getJSONArray(it).let { x -> x.getLong(0) to x.getInt(1) } }
+        } catch (_: Exception) {}
         val list = WorkoutJson.passiveFromJson(json)
         if (list.isEmpty()) return
         // Merge with what we have (the watch keeps only a week).
@@ -369,6 +439,7 @@ object PhoneStore {
         val now = System.currentTimeMillis()
         lastPassive.value = now
         prefs.edit().putString("passive", WorkoutJson.passiveToJson(merged)).putLong("lastPassive", now).apply()
+        if (days.value.isNotEmpty()) days.value = mergeWatch(days.value)
     }
 
     // ---------- Import from the watch ----------
@@ -383,9 +454,19 @@ object PhoneStore {
             map.getString("fav")?.let { f -> parseFav(f).takeIf { it.isNotEmpty() }?.let { favorites.value = it; prefs.edit().putString("fav", f).apply() } }
             return null
         }
+        if (path.startsWith(Protocol.PATH_ECG)) {
+            touchWatch()
+            val asset = map.getAsset("json") ?: return null
+            val bytes = Tasks.await(Wearable.getDataClient(ctx).getFdForAsset(asset)).inputStream.use { it.readBytes() }
+            val r = fi.sarmat.pulsetrainer.core.Ecg.fromJson(String(bytes)) ?: return null
+            File(ecgDir(), "${r.time}.json").writeBytes(bytes)
+            loadEcgs()
+            Backup.changed(ctx)
+            return null
+        }
         if (path.startsWith(Protocol.PATH_PASSIVE)) {
             touchWatch()
-            savePassive(map.getString("days"))
+            savePassive(map.getString("days"), map.getString("hr"))
             return null
         }
         if (!path.startsWith(Protocol.PATH_WORKOUT)) return null

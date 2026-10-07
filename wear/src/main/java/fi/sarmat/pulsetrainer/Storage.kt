@@ -221,6 +221,18 @@ object Storage {
     fun kmAlert(t: WorkoutType): Boolean = prefs.getBoolean("km_${t.name}", true)
     fun setKmAlert(t: WorkoutType, on: Boolean) { prefs.edit().putBoolean("km_${t.name}", on).apply() }
 
+    // ---------- ECG (H10), last 10 recordings ----------
+
+    private fun ecgDir() = File(appCtx.filesDir, "ecg").apply { mkdirs() }
+
+    fun addEcg(r: fi.sarmat.pulsetrainer.core.EcgRecord) {
+        File(ecgDir(), "${r.time}.json").writeText(fi.sarmat.pulsetrainer.core.Ecg.toJson(r))
+        ecgDir().listFiles()?.sortedBy { it.name }?.dropLast(10)?.forEach { it.delete() }
+    }
+
+    fun ecgList(): List<fi.sarmat.pulsetrainer.core.EcgRecord> =
+        (ecgDir().listFiles() ?: emptyArray()).sortedBy { it.name }.mapNotNull { fi.sarmat.pulsetrainer.core.Ecg.fromJson(it.readText()) }
+
     // ---------- Stress ----------
 
     fun stressHistory(): List<StressRecord> = WorkoutJson.stressFromJson(prefs.getString("stress", null))
@@ -234,7 +246,7 @@ object Storage {
     // ---------- Readiness and plan from the phone's coach ----------
 
     data class CoachInfo(val score: Int, val level: Int, val label: String, val headline: String, val plan: List<String>, val time: Long,
-                         val energy: Int = -1, val energyLabel: String = "")
+                         val energy: Int = -1, val energyLabel: String = "", val recH: Int = -1)
 
     val coach = MutableStateFlow<CoachInfo?>(null)
 
@@ -247,7 +259,7 @@ object Storage {
         val o = org.json.JSONObject(json ?: "")
         val a = o.optJSONArray("plan")
         CoachInfo(o.getInt("score"), o.getInt("level"), o.optString("label"), o.optString("headline"),
-            (0 until (a?.length() ?: 0)).map { a!!.getString(it) }, o.optLong("t"), o.optInt("energy", -1), o.optString("energyLabel"))
+            (0 until (a?.length() ?: 0)).map { a!!.getString(it) }, o.optLong("t"), o.optInt("energy", -1), o.optString("energyLabel"), o.optInt("recH", -1))
     } catch (_: Exception) { null }
 
     /**

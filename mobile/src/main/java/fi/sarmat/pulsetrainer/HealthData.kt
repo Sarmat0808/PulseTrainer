@@ -310,6 +310,17 @@ object HealthData {
         return Snapshot(map.values.toList(), ext.sortedBy { it.start }, samples.filter { it.first >= recentFrom })
     }
 
+    /** Pulse samples of the last 30 hours only (fast, for the live energy curve). */
+    suspend fun recentHr(ctx: Context): List<Pair<Long, Int>>? {
+        if (!HealthSync.available(ctx)) return null
+        val c = HealthConnectClient.getOrCreate(ctx)
+        if (HealthPermission.getReadPermission(HeartRateRecord::class) !in c.permissionController.getGrantedPermissions()) return null
+        val to = Instant.now()
+        return read(c, HeartRateRecord::class, to.minusSeconds(30 * 3600L), to, maxPages = 20)
+            .flatMap { r -> r.samples.map { it.time.toEpochMilli() to it.beatsPerMinute.toInt() } }
+            .filter { it.second in 30..230 }.sortedBy { it.first }
+    }
+
     /** Lowest 30-minute average heart rate during the night (needs ~2 h of samples). */
     fun nightRest(night: List<Pair<Long, Int>>): Int? {
         if (night.size < 20 || night.last().first - night.first().first < 2 * 3600_000L) return null

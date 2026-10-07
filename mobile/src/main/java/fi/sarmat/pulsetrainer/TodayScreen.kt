@@ -1,6 +1,8 @@
 package fi.sarmat.pulsetrainer
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import fi.sarmat.pulsetrainer.core.Health
 import fi.sarmat.pulsetrainer.core.Profile
 import fi.sarmat.pulsetrainer.core.fmtDuration
 import java.text.SimpleDateFormat
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Date
@@ -43,6 +46,7 @@ import kotlin.math.roundToInt
 
 private val TODAY_CARDS = linkedMapOf(
     "ready" to "Готовность, самочувствие и план",
+    "recovery" to "Время восстановления",
     "energy" to "Энергия (как Body Battery)",
     "sleep" to "Сон",
     "activity" to "Активность и шаги",
@@ -57,7 +61,7 @@ private val TODAY_CARDS = linkedMapOf(
     "body" to "Состав тела",
     "workouts" to "Последние тренировки",
 )
-private val TODAY_MORE = setOf("heart", "load", "stress", "hr", "vitals", "water", "body", "workouts")
+private val TODAY_MORE = setOf("heart", "load", "hr", "vitals", "water", "body", "workouts")
 
 private val hm = SimpleDateFormat("HH:mm", Locale("ru"))
 
@@ -76,10 +80,10 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
     val check by PhoneStore.checkIn.collectAsState()
     val hrRecent by PhoneStore.hrRecent.collectAsState()
     var minuteTick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5 * 60_000L); minuteTick++ } }
     val foodV by FoodStore.version.collectAsState()
     val p = profile ?: Profile()
-    val energy = remember(p, days, workouts, tests, check, passive, hrRecent, minuteTick) { PhoneStore.energy() }
+    val watchHr by PhoneStore.watchHr.collectAsState()
+    val energy = remember(p, days, workouts, tests, check, passive, hrRecent, watchHr, minuteTick) { PhoneStore.energy() }
     val today = days.lastOrNull()
     val lastNight = days.lastOrNull { it.sleepMin != null }
     val advice = remember(p, goal, days, workouts, tests, weights, body, ext, check, passive) { PhoneStore.advise() }
@@ -87,7 +91,20 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
     val trends = remember(p, goal, days, workouts, ext, passive, weights) { Health.trends(p, goal, days, workouts, ext, passive, weights) }
     val layout = rememberCardLayout("today", TODAY_CARDS.keys.toList(), TODAY_MORE)
 
-    LaunchedEffect(Unit) { onRefresh() }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val stressList by PhoneStore.stress.collectAsState()
+    val recovery = remember(workouts, ext, days, passive, check, stressList, minuteTick) { PhoneStore.recovery() }
+    LaunchedEffect(Unit) {
+        onRefresh()
+        // Live: every 10 minutes ask the watch for fresh pulse and re-read the last hours from Health Connect.
+        while (true) {
+            PhoneStore.sendToWatch(ctx, fi.sarmat.pulsetrainer.core.Protocol.CMD_SYNC)
+            PhoneStore.refreshRecent(ctx)
+            minuteTick++
+            kotlinx.coroutines.delay(10 * 60_000L)
+        }
+    }
 
     @Composable
     fun card(id: String) {
@@ -105,6 +122,24 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                 CheckInBlock()
                 Text("План, причины и чего избегать — вкладка «Тренер» →", color = Accent, fontSize = 15.sp,
                     modifier = Modifier.clickable { openTab(1) }.padding(top = 2.dp))
+            }
+            "recovery" -> Tile {
+                TileTitle("Восстановление")
+                val c = levelColor(recovery.level)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val frac = if (recovery.hoursTotal > 0) 1f - recovery.hoursLeft / recovery.hoursTotal.toFloat() else 1f
+                    Ring(frac, c, if (recovery.hoursLeft == 0) "✓" else "${recovery.hoursLeft} ч", Modifier.size(84.dp))
+                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                        Text(recovery.label, color = c, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        if (recovery.hoursLeft > 0) Text("Готов к тяжёлой тренировке: " +
+                            SimpleDateFormat("EE HH:mm", Locale("ru")).format(Date(recovery.readyAt)), color = Color.White, fontSize = 15.sp)
+                    }
+                }
+                Expander("Как считается") {
+                    recovery.factors.forEach { BulletText(it, Color.White, 15) }
+                    BulletText("Каждая тренировка добавляет время по нагрузке на сердце (пульс) и объёму силовой; незавершённое восстановление частично переносится.", Dim, 15)
+                    BulletText("Сон, ночной пульс, стресс и самочувствие ускоряют или замедляют восстановление — как в Garmin.", Dim, 15)
+                }
             }
             "energy" -> Tile {
                 TileTitle("Энергия")
@@ -218,6 +253,13 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
             "stress" -> Tile {
                 TileTitle("Стресс")
                 StressContent(stress)
+                StressDayChart(hrRecent, workouts, ext, p)
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        val ok = PhoneStore.sendToWatch(ctx, fi.sarmat.pulsetrainer.core.Protocol.CMD_OPEN + "stress")
+                        android.widget.Toast.makeText(ctx, if (ok) "Откройте часы — замер стресса" else "Часы не на связи", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }, modifier = Modifier.fillMaxWidth()) { Text("Измерить стресс на часах", fontSize = 16.sp) }
             }
             "hr" -> Tile {
                 TileTitle("Пульс сегодня")
@@ -240,6 +282,7 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                 VRow("Дыхание во сне", lastResp?.let { "%.0f /мин".format(it) }, null)
                 VRow("Давление", lastBp?.let { "${it.bpSys}/${it.bpDia}" }, lastBp?.let { Health.bpLabel(it.bpSys!!, it.bpDia!!) })
                 VRow("Вариабельность пульса", lastHrv?.let { "%.0f мс".format(it) } ?: test?.takeIf { it.rmssd > 0 }?.let { "${it.rmssd.roundToInt()} мс (H10)" }, null)
+                EcgBlock()
             }
             "water" -> Tile {
                 TileTitle("Вода")
@@ -347,5 +390,106 @@ private fun EnergyChart(series: List<Pair<Long, Int>>) {
         }
         drawPath(fill, Accent.copy(alpha = 0.18f))
         drawPath(path, Accent, style = androidx.compose.ui.graphics.drawscope.Stroke(5f, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+    }
+}
+
+/**
+ * Stress through the day from the pulse: pulse above your resting level while you are not
+ * in a workout (workouts are excluded). 30-minute bars, 0–100.
+ */
+@Composable
+private fun StressDayChart(samples: List<Pair<Long, Int>>, workouts: List<fi.sarmat.pulsetrainer.core.Workout>,
+                           ext: List<fi.sarmat.pulsetrainer.core.ExtWorkout>, p: Profile) {
+    val now = System.currentTimeMillis()
+    val dayStart = LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+    val rest = p.restHr ?: 60
+    val reserve = (fi.sarmat.pulsetrainer.core.Physiology.maxHr(p) - rest).coerceAtLeast(40)
+    val busy = workouts.map { it.start..it.end } + ext.map { it.start..it.end }
+    val bars = (0 until 48).map { i ->
+        val a = dayStart + i * 1800_000L; val b = a + 1800_000L
+        if (a > now) null else {
+            val v = samples.filter { it.first in a until b && busy.none { r -> it.first in r } }.map { it.second }
+            if (v.size < 3) null else ((v.sorted()[v.size / 2] - rest - 3).toDouble() / (0.30 * reserve) * 100).toInt().coerceIn(0, 100)
+        }
+    }
+    if (bars.count { it != null } < 4) return
+    Text("Напряжение за день (по пульсу, без тренировок)", color = Dim, fontSize = 14.sp)
+    Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+        bars.forEach { v ->
+            val c = when { v == null -> Color(0xFF2A3038); v <= 25 -> Color(0xFF2D9CDB); v <= 50 -> Good; v <= 75 -> Warn; else -> Danger }
+            Box(Modifier.weight(1f).height((if (v == null) 3 else (6 + v * 0.54).toInt()).dp).background(c))
+        }
+    }
+    Row(Modifier.fillMaxWidth()) {
+        listOf("0", "6", "12", "18", "24").forEachIndexed { i, t ->
+            Text(t, color = Dim, fontSize = 12.sp, modifier = Modifier.weight(1f), textAlign = if (i == 4) TextAlign.End else TextAlign.Start)
+        }
+    }
+}
+
+/** ECG recordings from the Polar H10: last result, trace, history; start a new one on the watch. */
+@Composable
+private fun EcgBlock() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val list by PhoneStore.ecgs.collectAsState()
+    var show by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<fi.sarmat.pulsetrainer.core.EcgRecord?>(null) }
+    val last = list.lastOrNull()
+    Text("ЭКГ (Polar H10)", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+    if (last != null) {
+        val (v, lv) = fi.sarmat.pulsetrainer.core.Ecg.verdict(last)
+        Column(Modifier.fillMaxWidth().clickable { show = last }) {
+            Text(SimpleDateFormat("d MMM, HH:mm", Locale("ru")).format(Date(last.time)) + " · ♥ ${last.hr} · ВСР ${last.rmssd.roundToInt()} мс",
+                color = Color.White, fontSize = 15.sp)
+            Text(v, color = levelColor(lv), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            EcgTrace(last, seconds = 6, height = 80)
+            Text("Нажмите, чтобы открыть всю запись", color = Accent, fontSize = 14.sp)
+        }
+    } else Text("Пока нет записей. Наденьте H10 и запишите ЭКГ на часах (30 с).", color = Dim, fontSize = 15.sp)
+    OutlinedButton(onClick = {
+        scope.launch {
+            val ok = PhoneStore.sendToWatch(ctx, fi.sarmat.pulsetrainer.core.Protocol.CMD_OPEN + "ecg")
+            android.widget.Toast.makeText(ctx, if (ok) "Откройте часы — запись ЭКГ" else "Часы не на связи", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }, modifier = Modifier.fillMaxWidth()) { Text("Записать ЭКГ на часах", fontSize = 16.sp) }
+    if (list.size > 1) Expander("Все записи (${list.size})") {
+        list.reversed().forEach { r ->
+            Text(SimpleDateFormat("d MMM, HH:mm", Locale("ru")).format(Date(r.time)) + " · ♥ ${r.hr} · " + fi.sarmat.pulsetrainer.core.Ecg.verdict(r).first,
+                color = Color.White, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().clickable { show = r }.padding(vertical = 4.dp))
+        }
+    }
+    show?.let { r ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { show = null },
+            title = { Text("ЭКГ · ♥ ${r.hr} · ${r.seconds} с") },
+            text = {
+                Column(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState())) {
+                    EcgTrace(r, seconds = r.seconds, height = 160, pxPerSecond = 110)
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { show = null }) { Text("Закрыть") } },
+        )
+    }
+}
+
+@Composable
+private fun EcgTrace(r: fi.sarmat.pulsetrainer.core.EcgRecord, seconds: Int, height: Int, pxPerSecond: Int? = null) {
+    val n = (seconds * r.hz).coerceAtMost(r.samples.size)
+    val x = r.samples.copyOfRange(r.samples.size - n, r.samples.size)
+    if (x.size < 10) return
+    val mod = if (pxPerSecond != null) Modifier.width((seconds * pxPerSecond).dp) else Modifier.fillMaxWidth()
+    androidx.compose.foundation.Canvas(mod.height(height.dp).background(Color(0xFF1E1416))) {
+        // 0.2 s grid like ECG paper
+        val step = size.width / (n / (r.hz * 0.2f))
+        var gx = 0f
+        while (gx < size.width) { drawLine(Color(0xFF3A2428), androidx.compose.ui.geometry.Offset(gx, 0f), androidx.compose.ui.geometry.Offset(gx, size.height), 1f); gx += step }
+        val sorted = x.sorted()
+        val lo = sorted[(sorted.size * 0.01).toInt()]; val hi = sorted[(sorted.size * 0.995).toInt()].coerceAtLeast(lo + 1)
+        val path = androidx.compose.ui.graphics.Path()
+        x.forEachIndexed { i, v ->
+            val o = androidx.compose.ui.geometry.Offset(i * size.width / n, (size.height * 0.95f - (v - lo).toFloat() / (hi - lo) * size.height * 0.9f).coerceIn(0f, size.height))
+            if (i == 0) path.moveTo(o.x, o.y) else path.lineTo(o.x, o.y)
+        }
+        drawPath(path, Color(0xFFFF6B6B), style = androidx.compose.ui.graphics.drawscope.Stroke(2.5f))
     }
 }

@@ -140,6 +140,22 @@ object Nutrition {
 
     /** Extended everyday products (typical values per 100 g / 100 ml; check the package for exact numbers). */
     private val MORE: List<Food> get() = listOf(
+        // ----- Oils and fish oil -----
+        // Cod liver oil: 5 ml ≈ 4.6 g fat (density 0.92). Möller: 5 ml = 1130 mg omega-3, D 10 µg, A 250 µg.
+        Food("fish_oil_moller", "Рыбий жир Möller (жидкий)", 0.0, 92.0, 0.0, "Масла и добавки", 5, "ложка 5 мл"),
+        Food("omega3_caps", "Омега-3 в капсулах", 0.0, 100.0, 0.0, "Масла и добавки", 1, "капсула 1 г"),
+        Food("flax_oil", "Масло льняное", 0.0, 100.0, 0.0, "Масла и добавки", 10, "ст. ложка"),
+        Food("coconut_oil", "Масло кокосовое", 0.0, 100.0, 0.0, "Масла и добавки", 10, "ст. ложка"),
+        Food("ghee", "Масло топлёное (гхи)", 0.3, 99.5, 0.0, "Масла и добавки", 10, "ст. ложка"),
+        Food("sesame_oil", "Масло кунжутное", 0.0, 100.0, 0.0, "Масла и добавки", 10, "ст. ложка"),
+        Food("avocado_oil", "Масло авокадо", 0.0, 100.0, 0.0, "Масла и добавки", 10, "ст. ложка"),
+        Food("pumpkin_oil", "Масло тыквенное", 0.0, 100.0, 0.0, "Масла и добавки", 10, "ст. ложка"),
+        Food("mct_oil", "Масло MCT", 0.0, 100.0, 0.0, "Масла и добавки", 10, "ст. ложка"),
+        Food("margarine", "Маргарин / спред 60%", 0.2, 60.0, 0.5, "Масла и добавки", 10, "кусочек"),
+
+        // ----- Home dishes -----
+        Food("egg_salad", "Яичный салат (яйца, майонез, авокадо)", 10.0, 17.0, 2.0, "Готовые блюда", 150, "порция"),
+
         // ----- Store products (values from the package) -----
         Food("coop_protein_drink", "Coop Protein Drink (клубника)", 8.7, 1.5, 7.9, "Белок", 250, "пакет 250 мл", drink = true),
         Food("coop_protein_bar", "Coop Protein Bar Choco", 32.0, 12.0, 38.0, "Белок", 50, "батончик 50 г"),

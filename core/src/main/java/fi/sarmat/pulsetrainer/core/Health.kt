@@ -98,6 +98,90 @@ object Health {
         }
     }
 
+    // ======================= Recovery time (like Garmin) =======================
+
+    data class Recovery(
+        /** Hours until you are ready for a hard session again (0 = ready). */
+        val hoursLeft: Int,
+        /** Hours the last load needed in total (for the ring). */
+        val hoursTotal: Int,
+        /** Moment when recovery completes (epoch millis). */
+        val readyAt: Long,
+        val label: String,
+        val level: Int,
+        val factors: List<String>,
+    )
+
+    /** Base recovery need of a workout recorded by another app, by its load. */
+    private fun extHours(e: ExtWorkout): Int {
+        val cardio = when {
+            e.trimp < 30 -> 0
+            e.trimp < 60 -> 12
+            e.trimp < 110 -> 24
+            e.trimp < 180 -> 36
+            else -> 48
+        }
+        return if (e.strength && e.minutes >= 30) maxOf(cardio, 36) else cardio
+    }
+
+    /**
+     * Garmin-style recovery time: every workout adds its recovery need (from heart-rate load and strength volume);
+     * what is still left from earlier sessions carries over (half of it stacks on top).
+     * Then the remaining time is adjusted by how your body actually recovers:
+     * short or poor sleep slows it down, resting pulse above your norm slows it down, high stress and "tired" slow it down;
+     * good sleep and a calm night speed it up.
+     */
+    fun recovery(
+        workouts: List<Workout>, ext: List<ExtWorkout>, days: List<DailyStats>, passive: List<PassiveDay>,
+        check: CheckIn?, stress: List<StressRecord>, now: Long = System.currentTimeMillis(),
+    ): Recovery {
+        val h = 3600_000L
+        data class Ev(val end: Long, val hours: Int)
+        val own = workouts.filter { Physiology.isRealWorkout(it) && it.end > now - 5 * 86400_000L }.map { Ev(it.end, Physiology.recoveryHours(it.segments)) }
+        val other = ext.filter { e -> e.end > now - 5 * 86400_000L && workouts.none { e.start < it.end && e.end > it.start } }.map { Ev(it.end, extHours(it)) }
+        var readyAt = 0L
+        var total = 0
+        for (e in (own + other).filter { it.hours > 0 }.sortedBy { it.end }) {
+            val leftBefore = ((readyAt - e.end) / h.toDouble()).coerceAtLeast(0.0)
+            val add = e.hours + leftBefore * 0.5
+            readyAt = maxOf(readyAt, e.end + (add * h).toLong())
+            total = (add.roundToInt()).coerceAtLeast(total.takeIf { leftBefore > 0 } ?: 0)
+        }
+        var left = ((readyAt - now) / h.toDouble()).coerceAtLeast(0.0)
+        val factors = ArrayList<String>()
+        if (left > 0) {
+            var k = 1.0
+            val night = days.lastOrNull()?.takeIf { it.sleepMin != null }
+            val sleep = night?.sleepMin
+            if (sleep != null) when {
+                sleep < 360 -> { k += 0.25; factors += "Сон меньше 6 ч — восстановление медленнее (+25%)" }
+                sleep < 420 -> { k += 0.10; factors += "Сон меньше 7 ч (+10%)" }
+                (sleepScore(night)?.value ?: 0) >= 80 -> { k -= 0.10; factors += "Хороший сон ускоряет восстановление (−10%)" }
+            }
+            val rest = days.lastOrNull()?.restHr ?: passive.lastOrNull()?.restHr
+            val base = (days.dropLast(1).takeLast(14).mapNotNull { it.restHr } + passive.dropLast(1).takeLast(14).mapNotNull { it.restHr })
+                .takeIf { it.size >= 4 }?.average()
+            if (rest != null && base != null) {
+                val d = rest - base
+                if (d >= 5) { k += 0.25; factors += "Ночной пульс выше нормы на ${d.roundToInt()} (+25%)" }
+                else if (d >= 3) { k += 0.10; factors += "Ночной пульс немного повышен (+10%)" }
+                else if (d <= -2) { k -= 0.05; factors += "Ночной пульс ниже нормы (−5%)" }
+            }
+            stress.lastOrNull()?.takeIf { now - it.time < 12 * h && it.score > 60 }?.let { k += 0.10; factors += "Высокий стресс (+10%)" }
+            if (check != null && check.feel <= 2) { k += 0.15; factors += "Самочувствие: устал (+15%)" }
+            if (check != null && check.soreness == 2) { k += 0.15; factors += "Сильная боль в мышцах (+15%)" }
+            left *= k
+        }
+        val hl = left.roundToInt()
+        val (label, level) = when {
+            hl == 0 -> "Восстановлен — можно тяжёлую тренировку" to 0
+            hl <= 12 -> "Почти восстановлен — средняя нагрузка" to 1
+            hl <= 36 -> "Восстановление — лёгкая тренировка или зона 2" to 1
+            else -> "Нужен отдых — только прогулка и растяжка" to 2
+        }
+        return Recovery(hl, maxOf(total, hl), now + hl * h, label, level, factors)
+    }
+
     // ======================= VO2max =======================
 
     data class Vo2Report(

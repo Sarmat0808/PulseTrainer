@@ -242,7 +242,8 @@ fun ProfileTab() {
     val goal by PhoneStore.goal.collectAsState()
     val weights by PhoneStore.weights.collectAsState()
     var p by remember(stored) { mutableStateOf(stored ?: Profile()) }
-    val changed = p != (stored ?: Profile())
+    var autoRest by remember { mutableStateOf(PhoneStore.autoRest) }
+    val changed = p != (stored ?: Profile()) || autoRest != PhoneStore.autoRest
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Профиль и настройки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White) }
@@ -270,11 +271,21 @@ fun ProfileTab() {
                     Text("Пол", color = Dim, fontSize = 15.sp, modifier = Modifier.weight(1f))
                     Text(if (p.male) "мужской" else "женский", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
-                Stepper("Пульс покоя", p.restHr?.toString() ?: "авто", 1.0) { d -> p = p.copy(restHr = ((p.restHr ?: 60) + d.toInt()).coerceIn(35, 100)) }
-                Stepper("Макс. пульс", "${Physiology.maxHr(p)}" + if (p.maxHrOverride == null) " (формула)" else "", 1.0) { d ->
+                Stepper(if (autoRest) "Пульс покоя · авто" else "Пульс покоя", p.restHr?.toString() ?: "—", 1.0) { d ->
+                    autoRest = false
+                    p = p.copy(restHr = ((p.restHr ?: 60) + d.toInt()).coerceIn(35, 100))
+                }
+                Row(Modifier.fillMaxWidth().clickable { autoRest = !autoRest }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Пульс покоя автоматически", color = Color.White, fontSize = 15.sp)
+                        Text("По ночному пульсу и утренним тестам (медиана 7 дней)", color = Dim, fontSize = 14.sp)
+                    }
+                    androidx.compose.material3.Switch(checked = autoRest, onCheckedChange = { autoRest = it })
+                }
+                Stepper(if (p.maxHrOverride == null) "Макс. пульс · формула" else "Макс. пульс · свой", "${Physiology.maxHr(p)}", 1.0) { d ->
                     p = p.copy(maxHrOverride = (Physiology.maxHr(p) + d.toInt()).coerceIn(120, 220))
                 }
-                if (p.maxHrOverride != null) Text("Сбросить макс. пульс к формуле", color = Accent, fontSize = 15.sp,
+                if (p.maxHrOverride != null) Text("Сбросить макс. пульс к формуле (208 − 0,7 × возраст)", color = Accent, fontSize = 15.sp,
                     modifier = Modifier.clickable { p = p.copy(maxHrOverride = null) })
                 val b = Physiology.zoneBounds(p)
                 Text("Ваши зоны пульса", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
@@ -298,7 +309,8 @@ fun ProfileTab() {
                     onClick = {
                         val toSave = p
                         scope.launch {
-                            PhoneStore.updateProfile(ctx, toSave)
+                            PhoneStore.autoRest = autoRest
+                            PhoneStore.updateProfile(ctx, if (autoRest) toSave.copy(restHr = PhoneStore.autoRestValue() ?: toSave.restHr) else toSave)
                             Toast.makeText(ctx, "Сохранено и отправлено на часы", Toast.LENGTH_SHORT).show()
                         }
                     },

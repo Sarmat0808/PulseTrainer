@@ -150,20 +150,20 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
         item {
             val name = Storage.sensorName()
             val (label, color) = when (st) {
-                HrSensor.Status.CONNECTED -> "♥ ${bpm ?: "--"} · датчик подключён" to Color(0xFF1F4D33)
+                HrSensor.Status.CONNECTED -> ("♥ ${bpm ?: "--"} · H10 подключён" + (HrSensor.battery.value?.let { " · $it%" } ?: "")) to Color(0xFF1F4D33)
                 HrSensor.Status.CONNECTING, HrSensor.Status.RECONNECTING -> "Подключаю датчик…" to Colors.card
                 else -> (if (name == null) "Подключить Polar H10" else "Датчик не подключён") to Color(0xFF4D3A1F)
             }
             ItemChip(label, name ?: "Нажмите для настройки", color) { open(Scr.Sensor) }
         }
-        if (last != null && last.recoveryHours > 0) {
-            val left = ((last.end + last.recoveryHours * 3600_000L - System.currentTimeMillis()) / 3600_000L).toInt()
-            if (left > 0) item {
-                Card {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Line("Восстановление: ещё ~$left ч", Colors.wait, 16, bold = true)
-                        Line("после «${last.title}». Лёгкое кардио и прогулка — можно.", Colors.dim, 14)
-                    }
+        val recLeft = coach?.recH?.takeIf { it >= 0 } ?: last?.let {
+            ((it.end + Physiology.recoveryHours(it.segments) * 3600_000L - System.currentTimeMillis()) / 3600_000L).toInt()
+        } ?: 0
+        if (recLeft > 0) item {
+            Card {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Line("Восстановление: ещё ~$recLeft ч", Colors.wait, 16, bold = true)
+                    Line(if (recLeft > 24) "Сегодня — прогулка или растяжка" else "Лёгкое кардио и прогулка — можно", Colors.dim, 14)
                 }
             }
         }
@@ -179,6 +179,7 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
         item { ItemChip("Другие виды спорта", "Футбол, бассейн, теннис и ещё $moreCount", Color(0xFF233142)) { open(Scr.More) } }
         item { ListHeader { Text("Здоровье", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
         item { ItemChip("Стресс", "Замер 1 мин сидя · дыхание", Color(0xFF2A2442)) { open(Scr.Stress) } }
+        item { ItemChip("ЭКГ с Polar H10", "30 с · ритм, пульс, ВСР → телефон", Color(0xFF42242A)) { open(Scr.Ecg) } }
         item { ItemChip("Утренний тест готовности", "2,5 мин лёжа с датчиком") { open(Scr.Hrv) } }
         item { ListHeader { Text("Ещё", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
         item { ItemChip("История", "Прошлые тренировки") { open(Scr.History) } }

@@ -44,6 +44,7 @@ object Backup {
                 fun put(name: String, bytes: ByteArray) { zip.putNextEntry(ZipEntry(name)); zip.write(bytes); zip.closeEntry(); n++ }
                 prefNames.forEach { p -> File(prefsDir(ctx), "$p.xml").takeIf { it.exists() }?.let { put("prefs/$p.xml", it.readBytes()) } }
                 File(ctx.filesDir, "workouts").listFiles()?.forEach { put("workouts/${it.name}", it.readBytes()) }
+                File(ctx.filesDir, "ecg").listFiles()?.forEach { put("ecg/${it.name}", it.readBytes()) }
                 put("README.txt", ("PulseTrainer — резервная копия.\nВосстановление: Настройки → Резервная копия → Восстановить.\n" +
                     "workouts/*.json — тренировки (пульс каждую секунду, подходы, маршрут); prefs — профиль, тесты, питание, вес.").toByteArray())
             }
@@ -73,6 +74,9 @@ object Backup {
                             if (runCatching { WorkoutJson.fromJson(String(bytes)) }.isSuccess) {
                                 File(File(ctx.filesDir, "workouts").apply { mkdirs() }, name.removePrefix("workouts/")).writeBytes(bytes); n++
                             }
+                        }
+                        name.startsWith("ecg/") && name.endsWith(".json") && !name.contains("..") -> {
+                            File(File(ctx.filesDir, "ecg").apply { mkdirs() }, name.removePrefix("ecg/")).writeBytes(bytes); n++
                         }
                         name.startsWith("prefs/") && name.removePrefix("prefs/").removeSuffix(".xml") in prefNames -> tmpPrefs[name.removePrefix("prefs/")] = bytes
                     }

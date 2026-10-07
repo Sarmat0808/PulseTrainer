@@ -72,15 +72,24 @@ class ControlListenerService : WearableListenerService() {
             return
         }
         if (event.path == Protocol.PATH_PROFILE_SET) {
-            val p = WorkoutJson.profileFromJson(String(event.data)) ?: return
+            val raw = String(event.data)
+            val p = WorkoutJson.profileFromJson(raw) ?: return
+            val auto = try { org.json.JSONObject(raw).let { if (it.has("autoRest")) it.getBoolean("autoRest") else null } } catch (_: Exception) { null }
             Handler(Looper.getMainLooper()).post {
-                if (p.restHr != Storage.profile.value.restHr) Storage.autoRestHr = false
+                if (auto != null) Storage.autoRestHr = auto
+                else if (p.restHr != Storage.profile.value.restHr) Storage.autoRestHr = false
                 Storage.saveProfile(p)
             }
             return
         }
         if (event.path != Protocol.PATH_CONTROL) return
         val cmd = String(event.data)
+        if (cmd == Protocol.CMD_SYNC) { Passive.init(this); Passive.send(this, force = true); return }
+        if (cmd.startsWith(Protocol.CMD_OPEN)) {
+            startActivity(android.content.Intent(this, MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("open", cmd.removePrefix(Protocol.CMD_OPEN)))
+            return
+        }
         if (cmd.startsWith(Protocol.CMD_START)) {
             // Start a workout from the phone: open the app on the watch and begin.
             val t = WorkoutType.of(cmd.removePrefix(Protocol.CMD_START))

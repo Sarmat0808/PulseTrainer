@@ -44,6 +44,8 @@ sealed interface Scr {
     data object Stress : Scr
     data object Breathe : Scr
     data class Intervals(val type: WorkoutType) : Scr
+    data object Ecg : Scr
+    data class GpsPrompt(val type: WorkoutType) : Scr
 }
 
 class MainActivity : ComponentActivity() {
@@ -53,16 +55,20 @@ class MainActivity : ComponentActivity() {
         val stemPresses = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
         /** A workout to start right away (from a tile or from the phone). */
         val pendingStart = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+        /** A screen to open (from the phone), e.g. "stress". */
+        val pendingOpen = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra("start")?.let { pendingStart.value = it }
+        intent.getStringExtra("open")?.let { pendingOpen.value = it }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         intent?.getStringExtra("start")?.let { pendingStart.value = it }
+        intent?.getStringExtra("open")?.let { pendingOpen.value = it }
         setContent {
             // Larger, crisper text on the wrist (adjustable in Profile → «Размер шрифта»).
             val scale by Storage.fontScale.collectAsState()
@@ -143,10 +149,15 @@ fun AppRoot() {
         MainActivity.stemPresses.collect { if (stack.lastOrNull() != Scr.Switch) push(Scr.Switch) }
     }
 
-    fun startWorkout(t: WorkoutType) {
+    fun startWorkoutNow(t: WorkoutType) {
         WorkoutService.start(ctx, t)
         stack.removeAll { it != Scr.Home }
         push(Scr.Workout)
+    }
+
+    /** Outdoor workouts check that Location is on first (the app cannot switch it on by itself). */
+    fun startWorkout(t: WorkoutType) {
+        if (t.gps && !locationOn(ctx)) push(Scr.GpsPrompt(t)) else startWorkoutNow(t)
     }
 
     /** Interval workouts first show their timer settings (Start is at the top). */
@@ -162,6 +173,14 @@ fun AppRoot() {
         val t = WorkoutType.of(name)
         if (WorkoutEngine.ui.value.running) { WorkoutEngine.switchTo(t); stack.removeAll { it != Scr.Home }; push(Scr.Workout) }
         else startWorkout(t)
+    }
+
+    val open by MainActivity.pendingOpen.collectAsState()
+    LaunchedEffect(open) {
+        val o = open ?: return@LaunchedEffect
+        MainActivity.pendingOpen.value = null
+        if (o == "stress" && !WorkoutEngine.ui.value.running) push(Scr.Stress)
+        if (o == "ecg" && !WorkoutEngine.ui.value.running) push(Scr.Ecg)
     }
 
     val current = stack.last()
@@ -187,6 +206,8 @@ fun AppRoot() {
                     is Scr.Arrange -> ArrangeScreen(current.type, onStart = ::requestStart)
                     Scr.More -> MoreScreen(onStart = ::requestStart, open = { push(it) })
                     is Scr.Intervals -> IntervalSetupScreen(current.type, onStart = ::startWorkout)
+                    Scr.Ecg -> EcgScreen()
+                    is Scr.GpsPrompt -> GpsPromptScreen(current.type, onStart = { pop(); startWorkoutNow(it) })
                     Scr.Order -> OrderScreen()
                     Scr.Ready -> ReadyScreen(open = { push(it) })
                     Scr.Stress -> StressScreen(open = { push(it) })
@@ -205,5 +226,47 @@ private fun Dismissible(onDismiss: () -> Unit, content: @Composable () -> Unit) 
     val state = rememberSwipeToDismissBoxState()
     SwipeToDismissBox(onDismissed = onDismiss, state = state) { isBackground: Boolean ->
         if (isBackground) Box(Modifier.fillMaxSize().background(Color.Black)) else content()
+    }
+}
+
+
+fun locationOn(ctx: android.content.Context): Boolean = try {
+    val lm = ctx.getSystemService(android.location.LocationManager::class.java)
+    if (Build.VERSION.SDK_INT >= 28) lm.isLocationEnabled else lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+} catch (_: Exception) { true }
+
+/**
+ * Location is off: show the system "Turn on location?" dialog right away, and start the workout
+ * automatically the moment it is on. Or start without GPS.
+ */
+@Composable
+fun GpsPromptScreen(t: WorkoutType, onStart: (WorkoutType) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val act = ctx as? android.app.Activity
+    LaunchedEffect(Unit) {
+        Haptics.warn()
+        try {
+            val req = com.google.android.gms.location.LocationSettingsRequest.Builder()
+                .addLocationRequest(com.google.android.gms.location.LocationRequest.Builder(
+                    com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, 1000L).build())
+                .setAlwaysShow(true).build()
+            com.google.android.gms.location.LocationServices.getSettingsClient(ctx).checkLocationSettings(req)
+                .addOnFailureListener { e ->
+                    if (e is com.google.android.gms.common.api.ResolvableApiException && act != null)
+                        try { e.startResolutionForResult(act, 7) } catch (_: Exception) {}
+                }
+        } catch (_: Throwable) {}
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            if (locationOn(ctx)) { Haptics.ready(); onStart(t); break }
+        }
+    }
+    ListScreen {
+        item { ItemChip("Включить местоположение", "Нужно для км, темпа и маршрута", Colors.action) {
+            try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+        } }
+        item { Line("Как только GPS включится — тренировка «${t.short}» начнётся сама.", Colors.dim, 15) }
+        item { ItemChip("Начать без GPS", "Только пульс, время и шаги", Colors.card) { onStart(t) } }
     }
 }
