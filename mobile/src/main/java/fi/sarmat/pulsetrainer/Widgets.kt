@@ -268,7 +268,14 @@ fun SportIcon(t: fi.sarmat.pulsetrainer.core.WorkoutType, size: androidx.compose
             defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f
         ).apply {
             (fi.sarmat.pulsetrainer.core.SportIcons.PATHS[fi.sarmat.pulsetrainer.core.SportIcons.of(t)] ?: emptyList()).forEach {
-                addPath(pathData = androidx.compose.ui.graphics.vector.addPathNodes(it), fill = androidx.compose.ui.graphics.SolidColor(Color.White))
+                if (it.startsWith("s") && it.contains('|')) addPath(
+                    pathData = androidx.compose.ui.graphics.vector.addPathNodes(it.substringAfter('|')),
+                    stroke = androidx.compose.ui.graphics.SolidColor(Color.White),
+                    strokeLineWidth = it.substring(1).substringBefore('|').toFloatOrNull() ?: 2f,
+                    strokeLineCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round,
+                )
+                else addPath(pathData = androidx.compose.ui.graphics.vector.addPathNodes(it), fill = androidx.compose.ui.graphics.SolidColor(Color.White))
             }
         }.build()
     }

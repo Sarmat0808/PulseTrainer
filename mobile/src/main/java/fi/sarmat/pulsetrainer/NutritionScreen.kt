@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -744,42 +745,14 @@ private fun MealsCard(date: LocalDate, foods: List<Food>, entries: List<FoodEntr
         }
         fi.sarmat.pulsetrainer.core.Meals.ORDER.forEach { m ->
             val list = byMeal[m].orEmpty().sortedBy { it.time }
-            val kcal = list.sumOf { it.kcal }
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.width(54.dp).height(54.dp).clip(RoundedCornerShape(27.dp))
-                        .background(if (list.isEmpty()) Color(0xFF2A2F36) else Color(0xFF1F3A2A)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(n(kcal), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("ккал", color = Dim, fontSize = 11.sp)
-                    }
-                }
-                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(fi.sarmat.pulsetrainer.core.Meals.NAMES[m], color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                        if (list.isNotEmpty()) {
-                            val t = FoodStore.minuteOf(list.first().time)
-                            Text("  🕒 ${hm(t)}", color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                                modifier = Modifier.clickable { pickTime(ctx, t) { FoodStore.setMealTime(date, m, it) } }.padding(4.dp))
-                        }
-                    }
-                    list.forEach { e ->
-                        Text("${e.name} · ${amountText(e)} · ${n(e.kcal)} ккал", color = Dim, fontSize = 14.sp, maxLines = 1,
-                            modifier = Modifier.fillMaxWidth().clickable { edit = e }.padding(vertical = 2.dp))
-                    }
-                }
-                Text("+", color = Accent, fontSize = 30.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable { addTime = null; addMeal = m }.padding(horizontal = 14.dp, vertical = 4.dp))
-            }
+            MealRow(m, list, date, onAdd = { addTime = null; addMeal = m }, onEdit = { edit = it })
         }
-        if (notes.isNotEmpty()) {
-            Text("Время еды и статистика", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        // Tips and the "how it works" text stay folded — open when you want them.
+        Expander(if (notes.isEmpty()) "Как это работает" else "Время еды и советы · ${notes.size}") {
             notes.forEach { Text((if (it.good) "✓ " else "• ") + it.text, color = if (it.good) Good else Color.White, fontSize = 15.sp) }
+            Text("Забыли внести? Нажмите «+» у нужного приёма и поставьте время, когда ели (🕒). Время учитывается: белок после тренировки, " +
+                "распределение белка за день, поздний ужин перед сном. Нажмите на приём пищи, чтобы увидеть, что в нём.", color = Dim, fontSize = 14.sp)
         }
-        Text("Забыли внести? Нажмите «+» у нужного приёма и поставьте время, когда ели (🕒). Время учитывается: белок после тренировки, " +
-            "распределение белка за день, поздний ужин перед сном.", color = Dim, fontSize = 14.sp)
     }
     addMeal?.let { m ->
         val defT = remember(m, date, entries) { FoodStore.mealTime(date, m) }
@@ -842,4 +815,67 @@ private fun EntryEditDialog(date: LocalDate, e: FoodEntry, onClose: () -> Unit) 
         },
         dismissButton = { TextButton(onClick = onClose) { Text("Отмена") } },
     )
+}
+
+/**
+ * One meal: kcal in a circle, name + time, and under it only Б · Ж · У.
+ * The list of what was eaten is folded — tap the meal to open it. Water / zero-kcal drinks are one line.
+ */
+@Composable
+private fun MealRow(m: Int, list: List<FoodEntry>, date: LocalDate, onAdd: () -> Unit, onEdit: (FoodEntry) -> Unit) {
+    val ctx = LocalContext.current
+    var open by remember(date, m) { mutableStateOf(false) }
+    val kcal = list.sumOf { it.kcal }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .clickable(enabled = list.isNotEmpty()) { open = !open }.padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(50.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(if (list.isEmpty()) Color(0xFF2A2F36) else Color(0xFF1F4A33)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(n(kcal), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, lineHeight = 16.sp, maxLines = 1)
+                    Text("ккал", color = Dim, fontSize = 10.sp, lineHeight = 11.sp, maxLines = 1)
+                }
+            }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(fi.sarmat.pulsetrainer.core.Meals.NAMES[m], color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    if (list.isNotEmpty()) {
+                        val t = FoodStore.minuteOf(list.first().time)
+                        Text("  🕒 ${hm(t)}", color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                            modifier = Modifier.clickable { pickTime(ctx, t) { FoodStore.setMealTime(date, m, it) } }.padding(4.dp))
+                    }
+                }
+                if (list.isNotEmpty()) Text(
+                    "Б ${n(list.sumOf { it.p })} · Ж ${n(list.sumOf { it.f })} · У ${n(list.sumOf { it.c })}  " + (if (open) "▲" else "▼ ${list.size}"),
+                    color = Dim, fontSize = 14.sp, maxLines = 1,
+                )
+            }
+            Text("+", color = Accent, fontSize = 30.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onAdd).padding(horizontal = 14.dp, vertical = 2.dp))
+        }
+        if (open && list.isNotEmpty()) Column(
+            Modifier.fillMaxWidth().padding(start = 62.dp, bottom = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            val (water, food) = list.partition { it.drinkMl > 0 && it.kcal < 1 }
+            food.forEach { e ->
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onEdit(e) }.padding(vertical = 4.dp)) {
+                    Text(e.name, color = Color.White, fontSize = 15.sp, maxLines = 2, lineHeight = 18.sp)
+                    Text("${amountText(e)} · ${n(e.kcal)} ккал · Б ${n(e.p)} Ж ${n(e.f)} У ${n(e.c)}", color = Dim, fontSize = 13.sp, maxLines = 1)
+                }
+            }
+            water.groupBy { it.name }.forEach { (name, l) ->
+                Text("💧 $name × ${l.size} · ${l.sumOf { it.drinkMl }} мл", color = Color(0xFF56CCF2), fontSize = 15.sp,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onEdit(l.last()) }.padding(vertical = 4.dp))
+            }
+            Text("Нажмите на продукт — изменить граммы, приём, время или удалить", color = Dim, fontSize = 12.sp)
+        }
+    }
 }

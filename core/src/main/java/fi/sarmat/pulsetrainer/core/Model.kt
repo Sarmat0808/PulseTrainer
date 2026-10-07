@@ -40,10 +40,14 @@ enum class WorkoutType(
     PULL_UPS("Подтягивания", "Турник", Mode.SETS, repCount = true, minRestSec = 120, strength = true),
     PUSH_UPS("Отжимания", "Отжимания", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
     SQUATS("Приседания", "Приседания", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
+    LUNGES("Выпады", "Выпады", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
+    PLANK("Планка", "Планка", Mode.ROUNDS, roundWork = 45, roundRest = 30,
+        note = "Удержание по таймеру: время планки и отдыха настраиваются"),
     BOXING("Бокс", "Бокс", Mode.ROUNDS),
     TABATA("Табата", "Табата", Mode.ROUNDS, roundWork = 20, roundRest = 10,
         note = "Работа / отдых по таймеру, раунды и циклы — настраиваются"),
-    TREADMILL("Беговая дорожка", "Дорожка", Mode.CARDIO, treadmill = true, steps = true),
+    JUMP_ROPE("Скакалка", "Скакалка", Mode.ROUNDS, roundWork = 60, roundRest = 30),
+    TREADMILL("Беговая дорожка (зал)", "Дорожка", Mode.CARDIO, treadmill = true, steps = true),
     ELLIPTICAL("Орбитрек", "Орбитрек", Mode.CARDIO),
     BIKE_INDOOR("Велотренажёр", "Вело (зал)", Mode.CARDIO),
     BIKE_OUTDOOR("Велосипед (улица)", "Велосипед", Mode.CARDIO, gps = true, lapM = 5000, climb = true),
@@ -66,7 +70,6 @@ enum class WorkoutType(
     STAIRS("Степпер (тренажёр)", "Степпер", Mode.CARDIO, steps = true,
         note = "На тренажёре высота не меняется: этажи считаются по шагам"),
     HIIT("Интервальная (HIIT)", "Интервалы", Mode.ROUNDS, extra = true, roundWork = 40, roundRest = 20),
-    JUMP_ROPE("Скакалка", "Скакалка", Mode.ROUNDS, extra = true, roundWork = 60, roundRest = 30),
     HIKING("Поход / скандинавская ходьба", "Поход", Mode.CARDIO, gps = true, lapM = 1000, extra = true, climb = true, steps = true),
     SKIING("Лыжи", "Лыжи", Mode.CARDIO, gps = true, lapM = 1000, extra = true, climb = true),
     SKATING("Коньки", "Коньки", Mode.CARDIO, extra = true),
@@ -98,6 +101,7 @@ data class IntervalCfg(
             WorkoutType.HIIT -> IntervalCfg(40, 20, 10, 1, 60)
             WorkoutType.JUMP_ROPE -> IntervalCfg(60, 30, 10, 1, 60)
             WorkoutType.BOXING -> IntervalCfg(180, 60, 6, 1, 60)
+            WorkoutType.PLANK -> IntervalCfg(45, 30, 3, 1, 60, prep = 5)
             else -> IntervalCfg(t.roundWork, t.roundRest, 8)
         }
     }

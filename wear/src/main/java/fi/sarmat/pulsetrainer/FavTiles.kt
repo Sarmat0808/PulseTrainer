@@ -24,7 +24,7 @@ import fi.sarmat.pulsetrainer.core.WorkoutType
  * long-press the watch face → swipe left → «+», or in the Galaxy Wearable app → Tiles.
  */
 object FavTiles {
-    private const val RES_VERSION = "4"
+    private const val RES_VERSION = "5"
 
     fun refresh(ctx: Context) {
         try {
@@ -58,6 +58,18 @@ object FavTiles {
         "music_note" to R.drawable.sport_music_note,
         "self_improvement" to R.drawable.sport_self_improvement,
         "sports" to R.drawable.sport_sports,
+        "pt_pullup" to R.drawable.sport_pt_pullup,
+        "pt_pushup" to R.drawable.sport_pt_pushup,
+        "pt_plank" to R.drawable.sport_pt_plank,
+        "pt_squat" to R.drawable.sport_pt_squat,
+        "pt_lunge" to R.drawable.sport_pt_lunge,
+        "pt_jumprope" to R.drawable.sport_pt_jumprope,
+        "pt_treadmill" to R.drawable.sport_pt_treadmill,
+        "pt_run" to R.drawable.sport_pt_run,
+        "pt_elliptical" to R.drawable.sport_pt_elliptical,
+        "pt_bike_indoor" to R.drawable.sport_pt_bike_indoor,
+        "pt_stairs" to R.drawable.sport_pt_stairs,
+        "pt_dips" to R.drawable.sport_pt_dips,
     )
 
     private const val BLUE = 0xFF2D6CDF.toInt()
@@ -118,7 +130,7 @@ object FavTiles {
             if (i > 0) col.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(if (big) 8f else 4f)).build())
             val r = LayoutElementBuilders.Row.Builder().setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_TOP)
             row.forEach { t ->
-                r.addContent(if (big) cell(ctx, t, 52f, 30f, 14f, 84f) else cell(ctx, t, 42f, 24f, 11f, 60f))
+                r.addContent(if (big) cell(ctx, t, 52f, 32f, 14f, 84f) else cell(ctx, t, 42f, 26f, 10.5f, 66f))
             }
             col.addContent(r.build())
         }

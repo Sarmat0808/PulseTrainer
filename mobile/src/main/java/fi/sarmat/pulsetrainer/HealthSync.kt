@@ -52,7 +52,8 @@ object HealthSync {
         WorkoutType.OUTDOOR_STRENGTH -> ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS
         WorkoutType.PULL_UPS -> ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS
         WorkoutType.PUSH_UPS -> ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS
-        WorkoutType.SQUATS -> ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS
+        WorkoutType.SQUATS, WorkoutType.LUNGES -> ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS
+        WorkoutType.PLANK -> ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS
         WorkoutType.BOXING -> ExerciseSessionRecord.EXERCISE_TYPE_BOXING
         WorkoutType.TREADMILL -> ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL
         WorkoutType.ELLIPTICAL -> ExerciseSessionRecord.EXERCISE_TYPE_ELLIPTICAL

@@ -105,16 +105,22 @@ fun Line(text: String, color: Color = Color.White, size: Int = 16, bold: Boolean
         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
 }
 
-fun typeHint(t: WorkoutType): String = t.note ?: when {
-    t.mode == Mode.SETS && t.repCount -> "Подходы · автосчёт · отдых по пульсу"
+/** Short hint under the workout name — fits two lines on the round screen. */
+fun typeHint(t: WorkoutType): String = t.note?.takeIf { it.length <= 26 } ?: when {
+    t == WorkoutType.PLANK -> Storage.intervals(t).let { "Держать ${it.work} с × ${it.rounds}" }
+    t.mode == Mode.SETS && t.repCount -> "Автосчёт · отдых по пульсу"
     t.mode == Mode.SETS -> "Подходы · отдых по пульсу"
-    t.mode == Mode.ROUNDS -> Storage.intervals(t).let { "Работа ${it.work} с / отдых ${it.rest} с × ${it.rounds}" }
-    t == WorkoutType.STAIRS_HOME -> "Этажи · высота · темп подъёма"
-    t == WorkoutType.STAIRS_OUTDOOR -> "Этажи · высота · GPS-маршрут"
-    t == WorkoutType.STAIRS -> "Этажи по шагам · шаг/мин"
-    t.gps && t.climb -> "GPS · темп · высота · маршрут"
-    t.gps -> "GPS · дистанция · темп · карта"
-    t.treadmill -> "Скорость · зоны · калории"
+    t.mode == Mode.ROUNDS -> Storage.intervals(t).let { "${it.work} с / ${it.rest} с × ${it.rounds}" }
+    t == WorkoutType.STAIRS_HOME -> "Этажи · высота · темп"
+    t == WorkoutType.STAIRS_OUTDOOR -> "Улица · этажи · GPS"
+    t == WorkoutType.STAIRS -> "Тренажёр · этажи"
+    t == WorkoutType.SWIMMING -> "Пульс с часов"
+    t == WorkoutType.RUN -> "Улица · GPS · темп"
+    t == WorkoutType.WALK -> "Улица · GPS · км"
+    t.gps && t.climb -> "GPS · темп · высота"
+    t.gps -> "GPS · км · темп"
+    t.treadmill -> "Зал · скорость · зоны"
+    t == WorkoutType.BIKE_INDOOR || t == WorkoutType.ELLIPTICAL || t == WorkoutType.ROWING -> "Зал · зоны · калории"
     else -> "Зоны пульса · калории"
 }
 

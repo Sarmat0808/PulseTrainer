@@ -1,11 +1,24 @@
 package fi.sarmat.pulsetrainer.core
 
 /**
- * Sport pictograms: path data of Material Icons (Round style), Apache License 2.0,
+ * Sport pictograms: own exercise figures ("pt_*") + Material Icons (Round style), Apache License 2.0,
  * https://github.com/google/material-design-icons — 24×24 viewport, drawn in one colour.
  */
 object SportIcons {
     val PATHS: Map<String, List<String>> = mapOf(
+        // PulseTrainer's own pictograms (Samsung-like stick figures). "sW|path" = stroke of width W, else fill.
+        "pt_pullup" to listOf("s1.5|M3,21V3H21V21", "M10.20,6.10A1.8,1.8 0 1,0 13.80,6.10A1.8,1.8 0 1,0 10.20,6.10Z", "s2.0|M7.2,3.2L9.6,9.6H14.4L16.8,3.2", "s2.3|M12,9.6V15", "s2.3|M12,15L10.8,20.2M12,15L13.2,20.2"),
+        "pt_pushup" to listOf("s1.5|M2,20.6H22", "M2.70,10.40A1.9,1.9 0 1,0 6.50,10.40A1.9,1.9 0 1,0 2.70,10.40Z", "s2.3|M7,12.2L20.8,18.4", "s2.3|M7.6,12.6V19.2"),
+        "pt_plank" to listOf("s1.5|M2,20.6H22", "M2.50,13.00A1.9,1.9 0 1,0 6.30,13.00A1.9,1.9 0 1,0 2.50,13.00Z", "s2.3|M7,14.6L20.8,18.6", "s2.3|M7.2,14.8V19H11"),
+        "pt_squat" to listOf("s1.5|M3,21.2H19", "M8.90,4.40A1.9,1.9 0 1,0 12.70,4.40A1.9,1.9 0 1,0 8.90,4.40Z", "s2.3|M10.2,7L7,13.2", "s2.3|M9.8,8.2H17.5", "s2.3|M7,13.2H13.2L11.8,19.8H14.6"),
+        "pt_lunge" to listOf("s1.5|M2,21.2H22", "M9.50,3.60A1.9,1.9 0 1,0 13.30,3.60A1.9,1.9 0 1,0 9.50,3.60Z", "s2.3|M11.2,6.2V12.6", "s2.3|M11.2,7.4L13.4,10L11.6,12", "s2.3|M11.2,12.6H16.2V19.8H18.4", "s2.3|M11.2,12.6L7.4,18.6L3.6,19.8"),
+        "pt_jumprope" to listOf("M10.10,3.60A1.9,1.9 0 1,0 13.90,3.60A1.9,1.9 0 1,0 10.10,3.60Z", "s2.3|M12,6.2V12.2", "s2.3|M12,7.4L8.4,10.6L6.4,12.4M12,7.4L15.6,10.6L17.6,12.4", "s2.3|M12,12.2L10.6,17.4M12,12.2L13.4,17.4", "s1.3|M6.4,12.4C2.6,24.6 21.4,24.6 17.6,12.4"),
+        "pt_treadmill" to listOf("s1.5|M2.5,20.5H18.5L20.5,9.5H17", "M9.70,3.70A1.9,1.9 0 1,0 13.50,3.70A1.9,1.9 0 1,0 9.70,3.70Z", "s2.3|M11,6.3L9.6,11.8", "s2.3|M10.8,7.6L13.4,9.6L15.4,8.2M10.8,7.6L8,9.4L7,7.8", "s2.3|M9.6,11.8L12.2,14.6L11.2,18.4M9.6,11.8L7.4,15L4.6,15.6"),
+        "pt_run" to listOf("M2.40,4.60A2.2,2.2 0 1,0 6.80,4.60A2.2,2.2 0 1,0 2.40,4.60Z", "s1.3|M4.6,0.8V1.4M0.8,4.6H1.4M1.9,1.9L2.3,2.3M7.3,1.9L6.9,2.3M1.9,7.3L2.3,6.9", "M13.20,3.60A2.0,2.0 0 1,0 17.20,3.60A2.0,2.0 0 1,0 13.20,3.60Z", "s2.3|M14.4,6.4L12.4,12.6", "s2.3|M14.2,7.8L17.2,10.4L19.6,9M14.2,7.8L10.6,9.6L9.4,7.8", "s2.3|M12.4,12.6L15.6,15.6L14.6,20.6M12.4,12.6L9.6,16.6L5.6,17.2", "s1.5|M3,21.6H21"),
+        "pt_elliptical" to listOf("s1.5|M3.5,21H20.5", "s1.5|M18.8,5.4L16.4,21", "s1.5|M5.6,18.6L14.8,17.6", "M7.90,3.40A1.9,1.9 0 1,0 11.70,3.40A1.9,1.9 0 1,0 7.90,3.40Z", "s2.3|M9.8,6V12.4", "s2.3|M9.8,7.2L13.2,9.8L18.4,7.4", "s2.3|M9.8,12.4L12.4,15.2L12.8,17.8M9.8,12.4L8.4,15.6L7.4,18.4"),
+        "pt_bike_indoor" to listOf("s1.5|M4,21.2H20", "s1.5|M7.6,21.2V12.6M5.6,12.4H9.8", "s1.5|M17.2,21.2L18.4,8.4H15.8", "s1.5|M16.6,14.6A3,3 0 1,0 16.6,20.6A3,3 0 1,0 16.6,14.6Z", "M11.50,3.40A1.9,1.9 0 1,0 15.30,3.40A1.9,1.9 0 1,0 11.50,3.40Z", "s2.3|M12.6,5.8L8.2,10.8", "s2.3|M12.2,6.6L16,8.4", "s2.3|M8.2,10.8L12.4,12.4L11.2,16.6"),
+        "pt_stairs" to listOf("s1.5|M2,21H7V17H12V13H17V9H22", "M10.60,2.80A1.8,1.8 0 1,0 14.20,2.80A1.8,1.8 0 1,0 10.60,2.80Z", "s2.3|M12.2,5.2L11,10", "s2.3|M12,6.2L14.4,8.2M12,6.2L9.6,7.8", "s2.3|M11,10L14,10.6L14.6,13M11,10L9.6,13.4L9.4,16.8"),
+        "pt_dips" to listOf("s1.5|M4,21V12H9M20,21V12H15", "M10.10,4.00A1.9,1.9 0 1,0 13.90,4.00A1.9,1.9 0 1,0 10.10,4.00Z", "s2.3|M9,12L9.6,7.4H14.4L15,12", "s2.3|M12,7.4V14", "s2.3|M12,14L10.8,19M12,14L14.4,17.4L13.4,19.8"),
         "accessibility_new" to listOf("M20.75 6.99c-.14-.55-.69-.87-1.24-.75-2.38.53-5.03.76-7.51.76s-5.13-.23-7.51-.76c-.55-.12-1.1.2-1.24.75-.14.56.2 1.13.75 1.26 1.61.36 3.35.61 5 .75v12c0 .55.45 1 1 1s1-.45 1-1v-5h2v5c0 .55.45 1 1 1s1-.45 1-1V9c1.65-.14 3.39-.39 4.99-.75.56-.13.9-.7.76-1.26zM12 6c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"),
         "directions_bike" to listOf("M15.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM5 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5zm5.8-10l2.4-2.4.8.8c1.06 1.06 2.38 1.78 3.96 2.02.6.09 1.14-.39 1.14-1 0-.49-.37-.91-.85-.99-1.11-.18-2.02-.71-2.75-1.43l-1.9-1.9c-.5-.4-1-.6-1.6-.6s-1.1.2-1.4.6L7.8 8.4c-.4.4-.6.9-.6 1.4 0 .6.2 1.1.6 1.4L11 14v4c0 .55.45 1 1 1s1-.45 1-1v-4.4c0-.52-.2-1.01-.55-1.38L10.8 10.5zM19 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5z"),
         "directions_run" to listOf("M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.17 12l.57-2.5 2.1 2v5c0 .55.45 1 1 1s1-.45 1-1v-5.64c0-.55-.22-1.07-.62-1.45l-1.48-1.41.6-3c1.07 1.24 2.62 2.13 4.36 2.41.6.09 1.14-.39 1.14-1 0-.49-.36-.9-.85-.98-1.52-.25-2.78-1.15-3.45-2.33l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L7.21 7.76c-.74.32-1.22 1.04-1.22 1.85v2.37c0 .55.45 1 1 1s1-.45 1-1v-2.4l1.8-.7-1.6 8.1-3.92-.8c-.54-.11-1.07.24-1.18.78V17c-.11.54.24 1.07.78 1.18l4.11.82c1.06.21 2.1-.46 2.34-1.52z"),
@@ -34,13 +47,18 @@ object SportIcons {
 
     /** Which pictogram each workout type uses. */
     fun of(t: WorkoutType): String = when (t) {
-        WorkoutType.STRENGTH, WorkoutType.OUTDOOR_STRENGTH -> "fitness_center"
-        WorkoutType.PULL_UPS, WorkoutType.SQUATS -> "sports_gymnastics"
-        WorkoutType.PUSH_UPS -> "accessibility_new"
+        WorkoutType.STRENGTH -> "fitness_center"
+        WorkoutType.OUTDOOR_STRENGTH -> "pt_dips"
+        WorkoutType.PULL_UPS -> "pt_pullup"
+        WorkoutType.PUSH_UPS -> "pt_pushup"
+        WorkoutType.SQUATS -> "pt_squat"
+        WorkoutType.LUNGES -> "pt_lunge"
+        WorkoutType.PLANK -> "pt_plank"
         WorkoutType.BOXING -> "sports_mma"
-        WorkoutType.TREADMILL, WorkoutType.RUN -> "directions_run"
-        WorkoutType.ELLIPTICAL -> "nordic_walking"
-        WorkoutType.BIKE_INDOOR -> "pedal_bike"
+        WorkoutType.TREADMILL -> "pt_treadmill"
+        WorkoutType.RUN -> "pt_run"
+        WorkoutType.ELLIPTICAL -> "pt_elliptical"
+        WorkoutType.BIKE_INDOOR -> "pt_bike_indoor"
         WorkoutType.BIKE_OUTDOOR -> "directions_bike"
         WorkoutType.WALK -> "directions_walk"
         WorkoutType.FOOTBALL -> "sports_soccer"
@@ -49,9 +67,10 @@ object SportIcons {
         WorkoutType.VOLLEYBALL -> "sports_volleyball"
         WorkoutType.SWIMMING -> "pool"
         WorkoutType.ROWING -> "rowing"
-        WorkoutType.STAIRS, WorkoutType.STAIRS_OUTDOOR, WorkoutType.STAIRS_HOME -> "stairs"
+        WorkoutType.STAIRS -> "stairs"
+        WorkoutType.STAIRS_OUTDOOR, WorkoutType.STAIRS_HOME -> "pt_stairs"
         WorkoutType.HIIT, WorkoutType.TABATA -> "timer"
-        WorkoutType.JUMP_ROPE -> "sports_handball"
+        WorkoutType.JUMP_ROPE -> "pt_jumprope"
         WorkoutType.HIKING -> "hiking"
         WorkoutType.SKIING -> "downhill_skiing"
         WorkoutType.SKATING -> "ice_skating"
@@ -72,6 +91,8 @@ object SportIcons {
         WorkoutType.PULL_UPS -> 0xFFE0607E
         WorkoutType.PUSH_UPS -> 0xFFCF6A4A
         WorkoutType.SQUATS -> 0xFFB95A70
+        WorkoutType.LUNGES -> 0xFFC9506A
+        WorkoutType.PLANK -> 0xFFD06F5C
         WorkoutType.TREADMILL -> 0xFF3D7DD8
         WorkoutType.ELLIPTICAL -> 0xFF2C9AC9
         WorkoutType.BIKE_INDOOR -> 0xFF4B68CF
