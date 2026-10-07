@@ -283,3 +283,6 @@ fun SportIcon(t: fi.sarmat.pulsetrainer.core.WorkoutType, size: androidx.compose
         img(size * 0.6f)
     }
 }
+
+/** Workout colour for icons and badges (see SportIcons.color). */
+fun sportColor(t: fi.sarmat.pulsetrainer.core.WorkoutType) = Color(fi.sarmat.pulsetrainer.core.SportIcons.color(t))

@@ -24,7 +24,7 @@ import fi.sarmat.pulsetrainer.core.WorkoutType
  * long-press the watch face → swipe left → «+», or in the Galaxy Wearable app → Tiles.
  */
 object FavTiles {
-    private const val RES_VERSION = "3"
+    private const val RES_VERSION = "4"
 
     fun refresh(ctx: Context) {
         try {
@@ -89,7 +89,7 @@ object FavTiles {
             .setWidth(dp(circle)).setHeight(dp(circle))
             .setModifiers(
                 ModifiersBuilders.Modifiers.Builder()
-                    .setBackground(ModifiersBuilders.Background.Builder().setColor(argb(BLUE))
+                    .setBackground(ModifiersBuilders.Background.Builder().setColor(argb(SportIcons.color(t).toInt()))
                         .setCorner(ModifiersBuilders.Corner.Builder().setRadius(dp(circle / 2)).build()).build())
                     .build()
             )
@@ -115,10 +115,10 @@ object FavTiles {
         col.addContent(text("★ Избранное", 13f, DIM))
         col.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(6f)).build())
         fav.chunked(cols).forEachIndexed { i, row ->
-            if (i > 0) col.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(if (big) 8f else 6f)).build())
+            if (i > 0) col.addContent(LayoutElementBuilders.Spacer.Builder().setHeight(dp(if (big) 8f else 4f)).build())
             val r = LayoutElementBuilders.Row.Builder().setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_TOP)
             row.forEach { t ->
-                r.addContent(if (big) cell(ctx, t, 52f, 30f, 14f, 84f) else cell(ctx, t, 44f, 26f, 11f, 66f))
+                r.addContent(if (big) cell(ctx, t, 52f, 30f, 14f, 84f) else cell(ctx, t, 42f, 24f, 11f, 60f))
             }
             col.addContent(r.build())
         }

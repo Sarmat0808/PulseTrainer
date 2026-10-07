@@ -43,6 +43,7 @@ object HealthTiles {
             u.requestUpdate(SleepTileService::class.java)
             u.requestUpdate(StressTileService::class.java)
         } catch (_: Throwable) {}
+        PtComplication.refreshAll(ctx)
     }
 
     private fun text(s: String, size: Float, color: Int, bold: Boolean = false, lines: Int = 1) = LayoutElementBuilders.Text.Builder()
@@ -118,7 +119,8 @@ object HealthTiles {
         val lines = ArrayList<LayoutElement>()
         lines += text("Сон", 13f, DIM)
         lines += text(min?.let { "${it / 60} ч ${it % 60} мин" } ?: "Нет данных", 22f, WHITE, bold = true)
-        if (score != null) lines += text("Оценка $score · ${c?.sleepLabel ?: ""}", 14f, if (score >= 75) GREEN else if (score >= 55) YELLOW else RED, bold = true)
+        // Short word so the line fits the round screen.
+        if (score != null) lines += text("Оценка $score · " + when { score >= 80 -> "отлично"; score >= 65 -> "хорошо"; score >= 50 -> "средне"; else -> "плохо" }, 14f, if (score >= 75) GREEN else if (score >= 55) YELLOW else RED, bold = true)
         if (start != null && end != null) lines += text("${hm.format(Date(start))} – ${hm.format(Date(end))}", 14f, DIM)
         val deep = c?.deep?.takeIf { it >= 0 }; val rem = c?.rem?.takeIf { it >= 0 }
         if (deep != null && rem != null) lines += text("Глубокий $deep · REM $rem мин", 13f, PURPLE)

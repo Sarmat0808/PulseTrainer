@@ -51,6 +51,7 @@ import fi.sarmat.pulsetrainer.core.FoodEntry
 import fi.sarmat.pulsetrainer.core.Nutrition
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -380,13 +381,7 @@ private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, pickOnly: Bo
     var cat by remember { mutableStateOf<String?>(null) }
     var chosen by remember { mutableStateOf<Food?>(null) }
     var amount by remember { mutableStateOf("") }
-    var online by remember { mutableStateOf<List<FoodOnline.Item>?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    var onlineErr by remember { mutableStateOf<String?>(null) }
-    var savePick by remember { mutableStateOf<FoodOnline.Item?>(null) }
     val recent = remember { FoodStore.recentIds() }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-
     fun choose(item: Food) {
         if (pickOnly) { onAdd(item, 0.0); return }
         chosen = item
@@ -400,37 +395,25 @@ private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, pickOnly: Bo
             val f = chosen
             if (f == null) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedTextField(value = query, onValueChange = { query = it; online = null }, label = { Text("Поиск или штрихкод") },
+                    OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Поиск") },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Categories in one scrolling line — the list stays visible.
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Nutrition.CATEGORIES.forEach { c ->
                             FilterChip(selected = cat == c, onClick = { cat = if (cat == c) null else c }, label = { Text(c, fontSize = 13.sp) })
                         }
                     }
-                    if (query.trim().length >= 2) OutlinedButton(onClick = {
-                        loading = true; onlineErr = null
-                        scope.launch {
-                            try { online = FoodOnline.search(query) } catch (e: Exception) { onlineErr = "Нет интернета или сервис недоступен" }
-                            loading = false
-                        }
-                    }, modifier = Modifier.fillMaxWidth()) { Text(if (loading) "Ищу…" else "🔎 Найти в интернете «${query.trim()}»") }
-                    onlineErr?.let { Text(it, color = Warn, fontSize = 14.sp) }
+                    // Search by word beginnings too: «кура» finds «Куриная грудка», «греч» — «Гречка».
+                    fun matches(name: String, w: String): Boolean {
+                        if (name.contains(w, ignoreCase = true)) return true
+                        val stem = w.lowercase().take(maxOf(3, w.length - 1))
+                        return name.lowercase().split(' ', '(', ')', ',', '/').any { it.startsWith(stem) }
+                    }
                     val list = foods
                         .filter { cat == null || it.category == cat }
-                        .filter { query.isBlank() || query.trim().split(' ').filter { w -> w.isNotBlank() }.all { w -> it.name.contains(w, ignoreCase = true) || it.category.contains(w, ignoreCase = true) } }
+                        .filter { query.isBlank() || query.trim().split(' ').filter { w -> w.isNotBlank() }.all { w -> matches(it.name, w) || it.category.contains(w, ignoreCase = true) } }
                         .sortedBy { val i = recent.indexOf(it.id); if (i < 0) 999 else i }
                     LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                        val on = online
-                        if (on != null) {
-                            item { Text(if (on.isEmpty()) "В интернете ничего не найдено" else "Из интернета (Open Food Facts), на 100 г:", color = Accent, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
-                            items(on, key = { "o" + it.name + it.brand }) { it2 ->
-                                Column(Modifier.fillMaxWidth().clickable { savePick = it2 }.padding(vertical = 8.dp)) {
-                                    Text(it2.name + if (it2.brand.isNotBlank()) " · ${it2.brand}" else "", color = Color.White, fontSize = 16.sp)
-                                    Text("Б ${n(it2.p)} · Ж ${n(it2.f)} · У ${n(it2.c)} · ${it2.kcal.roundToInt()} ккал", color = Dim, fontSize = 14.sp)
-                                }
-                            }
-                            item { Text("Своя база:", color = Accent, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp)) }
-                        }
                         items(list, key = { it.id }) { item ->
                             Column(Modifier.fillMaxWidth().clickable { choose(item) }.padding(vertical = 8.dp)) {
                                 Text(item.name, color = Color.White, fontSize = 16.sp)
@@ -470,22 +453,18 @@ private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, pickOnly: Bo
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
-    // An online product is saved to your own products first (you can check and correct БЖУ), then used.
-    savePick?.let { item ->
-        CustomFoodDialog(prefill = item, onSaved = { saved -> savePick = null; choose(saved) }, onDismiss = { savePick = null })
-    }
 }
 
 /** Create or edit your own dish / product (БЖУ per 100 g from the package or your recipe). */
 @Composable
-fun CustomFoodDialog(edit: Food? = null, prefill: FoodOnline.Item? = null, onSaved: (Food) -> Unit = {}, onDismiss: () -> Unit) {
+fun CustomFoodDialog(edit: Food? = null, onSaved: (Food) -> Unit = {}, onDismiss: () -> Unit) {
     fun fmt(v: Double) = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v).replace(',', '.')
-    var name by remember { mutableStateOf(edit?.name ?: prefill?.let { (it.name + if (it.brand.isNotBlank()) " (${it.brand})" else "") } ?: "") }
-    var p by remember { mutableStateOf(edit?.p?.let(::fmt) ?: prefill?.p?.let(::fmt) ?: "") }
-    var f by remember { mutableStateOf(edit?.f?.let(::fmt) ?: prefill?.f?.let(::fmt) ?: "") }
-    var c by remember { mutableStateOf(edit?.c?.let(::fmt) ?: prefill?.c?.let(::fmt) ?: "") }
-    var piece by remember { mutableStateOf((edit?.pieceG ?: prefill?.serving)?.toString() ?: "") }
-    var drink by remember { mutableStateOf(edit?.drink ?: prefill?.drink ?: false) }
+    var name by remember { mutableStateOf(edit?.name ?: "") }
+    var p by remember { mutableStateOf(edit?.p?.let(::fmt) ?: "") }
+    var f by remember { mutableStateOf(edit?.f?.let(::fmt) ?: "") }
+    var c by remember { mutableStateOf(edit?.c?.let(::fmt) ?: "") }
+    var piece by remember { mutableStateOf(edit?.pieceG?.toString() ?: "") }
+    var drink by remember { mutableStateOf(edit?.drink ?: false) }
     fun d(s: String) = s.replace(',', '.').toDoubleOrNull()
     val ok = name.isNotBlank() && d(p) != null && d(f) != null && d(c) != null
     AlertDialog(
@@ -615,7 +594,7 @@ private fun MyFoodsEditor(onClose: () -> Unit) {
                     }
                 }
                 OutlinedButton(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) { Text("+ Новое блюдо (своё БЖУ)") }
-                OutlinedButton(onClick = { adding = true }, modifier = Modifier.fillMaxWidth()) { Text("+ Из базы или интернета") }
+                OutlinedButton(onClick = { adding = true }, modifier = Modifier.fillMaxWidth()) { Text("+ Из базы продуктов") }
             }
         },
         confirmButton = { TextButton(onClick = onClose) { Text("Готово") } },

@@ -60,7 +60,6 @@ private val monthFmt = SimpleDateFormat("LLLL yyyy", ru)
 private val dayFmt = SimpleDateFormat("EE, d MMM yyyy · HH:mm", ru)
 
 private val Gold = Color(0xFFF2C94C)
-private val Badge = Color(0xFF2D6CDF)
 
 /** One row of the history: our own workout or one recorded by Samsung Health. */
 private sealed interface HistRow {
@@ -146,7 +145,7 @@ private fun OwnRow(w: Workout, r: Review.Result?, onClick: () -> Unit) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(CardBg).clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.Top
     ) {
-        SportIcon(mainType(w), 44.dp, Color.White, Badge)
+        SportIcon(mainType(w), 44.dp, Color.White, sportColor(mainType(w)))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             val name = if (w.segments.size <= 1) mainType(w).short else w.segments.joinToString(" → ") { it.type.short }
@@ -176,7 +175,7 @@ private fun ExtRow(e: ExtWorkout) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF151A20)).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        SportIcon(guessType(e.title), 40.dp, Color.White, Color(0xFF3A4452))
+        SportIcon(guessType(e.title), 40.dp, Color.White, sportColor(guessType(e.title)).copy(alpha = 0.55f))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(e.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2)
@@ -229,7 +228,7 @@ private fun FavoritesCard() {
                             }.padding(vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        SportIcon(t, 40.dp, Color.White, Badge)
+                        SportIcon(t, 40.dp, Color.White, sportColor(t))
                         Text(t.short, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1,
                             modifier = Modifier.padding(top = 4.dp))
                     }
@@ -257,7 +256,7 @@ private fun FavDialog(current: List<WorkoutType>, onSave: (List<WorkoutType>) ->
                         }.padding(vertical = 6.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        SportIcon(t, 30.dp, Color.White, if (on) Badge else Color(0xFF3A4452))
+                        SportIcon(t, 30.dp, Color.White, if (on) sportColor(t) else sportColor(t).copy(alpha = 0.35f))
                         Text(t.title, color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 10.dp))
                         Text(if (on) "★" else "☆", color = if (on) Gold else Dim, fontSize = 24.sp)
                     }
@@ -278,7 +277,7 @@ fun ReviewSection(w: Workout) {
     val r = remember(w, all, profile) { Review.of(w, all, profile ?: Profile()) }
     Section {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SportIcon(mainType(w), 48.dp, Color.White, Badge)
+            SportIcon(mainType(w), 48.dp, Color.White, sportColor(mainType(w)))
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
                 Text("Оценка тренировки", color = Dim, fontSize = 15.sp)
                 Text(r.label + if (r.level >= 0) " · ${r.score}/100" else "", fontSize = 20.sp, fontWeight = FontWeight.Bold,

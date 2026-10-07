@@ -12,8 +12,8 @@ android {
         applicationId = "fi.sarmat.pulsetrainer"
         minSdk = 30
         targetSdk = 34
-        versionCode = 32
-        versionName = "3.2"
+        versionCode = 40
+        versionName = "4.0"
     }
 
     signingConfigs {
@@ -65,6 +65,8 @@ dependencies {
     implementation("androidx.wear.tiles:tiles:1.3.0")
     implementation("androidx.wear.protolayout:protolayout:1.1.0")
     implementation("androidx.wear.protolayout:protolayout-expression:1.1.0")
+    // Watch-face complications
+    implementation("androidx.wear.watchface:watchface-complications-data-source-ktx:1.2.1")
     implementation("androidx.health:health-services-client:1.0.0-beta03")
     implementation("com.google.guava:guava:32.1.3-android")
 

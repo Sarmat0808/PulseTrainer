@@ -77,7 +77,8 @@ fun ItemChip(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {
-            Box(Modifier.size(32.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF2D6CDF)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(32.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                .background(Color(fi.sarmat.pulsetrainer.core.SportIcons.color(icon))), contentAlignment = Alignment.Center) {
                 SportIcon(icon, 20.dp, Color.White)
             }
             androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))

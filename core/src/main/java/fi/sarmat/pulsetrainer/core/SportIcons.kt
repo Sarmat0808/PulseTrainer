@@ -59,4 +59,45 @@ object SportIcons {
         WorkoutType.YOGA -> "self_improvement"
         WorkoutType.OTHER -> "sports"
     }
+
+    /**
+     * Badge colour (ARGB) per workout. Families share a hue, members differ by tone, so you find
+     * a workout by colour without reading: strength = red/rose, gym cardio = blue, outdoor = green,
+     * stairs = amber, intervals & boxing = violet, ball games = orange/gold, water & ice = cyan,
+     * yoga & dance = orchid.
+     */
+    fun color(t: WorkoutType): Long = when (t) {
+        WorkoutType.STRENGTH -> 0xFFD9534F
+        WorkoutType.OUTDOOR_STRENGTH -> 0xFFC4553C
+        WorkoutType.PULL_UPS -> 0xFFE0607E
+        WorkoutType.PUSH_UPS -> 0xFFCF6A4A
+        WorkoutType.SQUATS -> 0xFFB95A70
+        WorkoutType.TREADMILL -> 0xFF3D7DD8
+        WorkoutType.ELLIPTICAL -> 0xFF2C9AC9
+        WorkoutType.BIKE_INDOOR -> 0xFF4B68CF
+        WorkoutType.ROWING -> 0xFF2F86A8
+        WorkoutType.STAIRS -> 0xFF5C6BD6
+        WorkoutType.WALK -> 0xFF2EA36B
+        WorkoutType.RUN -> 0xFF23926A
+        WorkoutType.BIKE_OUTDOOR -> 0xFF3B9E8C
+        WorkoutType.HIKING -> 0xFF5E9B3E
+        WorkoutType.SKIING -> 0xFF36A6A0
+        WorkoutType.STAIRS_HOME -> 0xFFD8902C
+        WorkoutType.STAIRS_OUTDOOR -> 0xFFC27A29
+        WorkoutType.BOXING -> 0xFF8E5BD0
+        WorkoutType.TABATA -> 0xFFA15BC4
+        WorkoutType.HIIT -> 0xFF7A5FD4
+        WorkoutType.JUMP_ROPE -> 0xFF996CB8
+        WorkoutType.FOOTBALL -> 0xFFE07B39
+        WorkoutType.BASKETBALL -> 0xFFD3682F
+        WorkoutType.TENNIS -> 0xFFC79F24
+        WorkoutType.TABLE_TENNIS -> 0xFFD2A63A
+        WorkoutType.VOLLEYBALL -> 0xFFE3983A
+        WorkoutType.BADMINTON -> 0xFFCCA13E
+        WorkoutType.SWIMMING -> 0xFF27A8C9
+        WorkoutType.SKATING -> 0xFF43B3D4
+        WorkoutType.YOGA -> 0xFFAE7BC6
+        WorkoutType.DANCING -> 0xFFC36DA6
+        WorkoutType.OTHER -> 0xFF6C7A89
+    }
 }

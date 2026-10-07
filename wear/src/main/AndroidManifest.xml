@@ -33,7 +33,8 @@
     <application
         android:name=".App"
         android:allowBackup="true"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="PulseTrainer"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
@@ -120,6 +121,58 @@
                 <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
             </intent-filter>
             <meta-data android:name="androidx.wear.tiles.PREVIEW" android:resource="@drawable/sport_timer" />
+        </service>
+
+        <service
+            android:name=".ReadinessComplication"
+            android:exported="true"
+            android:label="PulseTrainer: Готовность"
+            android:icon="@drawable/sport_sports"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data android:name="android.support.wearable.complications.SUPPORTED_TYPES" android:value="RANGED_VALUE,SHORT_TEXT" />
+            <meta-data android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS" android:value="1800" />
+        </service>
+
+        <service
+            android:name=".EnergyComplication"
+            android:exported="true"
+            android:label="PulseTrainer: Энергия"
+            android:icon="@drawable/sport_timer"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data android:name="android.support.wearable.complications.SUPPORTED_TYPES" android:value="RANGED_VALUE,SHORT_TEXT" />
+            <meta-data android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS" android:value="1800" />
+        </service>
+
+        <service
+            android:name=".RecoveryComplication"
+            android:exported="true"
+            android:label="PulseTrainer: Восстановление"
+            android:icon="@drawable/sport_self_improvement"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data android:name="android.support.wearable.complications.SUPPORTED_TYPES" android:value="RANGED_VALUE,SHORT_TEXT" />
+            <meta-data android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS" android:value="1800" />
+        </service>
+
+        <service
+            android:name=".SleepComplication"
+            android:exported="true"
+            android:label="PulseTrainer: Сон"
+            android:icon="@drawable/sport_self_improvement"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data android:name="android.support.wearable.complications.SUPPORTED_TYPES" android:value="RANGED_VALUE,SHORT_TEXT" />
+            <meta-data android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS" android:value="1800" />
         </service>
 
         <service
