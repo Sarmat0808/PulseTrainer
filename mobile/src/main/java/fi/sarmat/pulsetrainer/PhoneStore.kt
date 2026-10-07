@@ -36,6 +36,7 @@ class PhoneApp : Application() {
     override fun onCreate() {
         super.onCreate()
         PhoneStore.init(this)
+        FoodStore.init(this)
         try { Reminders.schedule(this, keep = true) } catch (_: Exception) {}
     }
 }
@@ -56,6 +57,13 @@ object PhoneStore {
     /** Last time anything arrived from the watch (epoch millis, 0 = never). */
     val lastWatchContact = MutableStateFlow(0L)
     val lastWorkoutReceived = MutableStateFlow(0L)
+
+    /** Text size in the phone app (1.0 = system size). */
+    val fontScale = MutableStateFlow(1.15f)
+    fun setFontScale(v: Float) {
+        fontScale.value = v.coerceIn(0.85f, 1.6f)
+        prefs.edit().putFloat("fontScale", fontScale.value).apply()
+    }
 
     var remindMorningHour: Int
         get() = prefs.getInt("remindHour", 8)
@@ -114,6 +122,7 @@ object PhoneStore {
             }
         } catch (_: Exception) { emptyList() }
         lastWatchContact.value = prefs.getLong("lastWatch", 0L)
+        fontScale.value = prefs.getFloat("fontScale", 1.15f)
         lastWorkoutReceived.value = prefs.getLong("lastWorkoutRx", 0L)
         reload()
     }

@@ -103,8 +103,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         openId.value = intent?.getStringExtra("open")
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Color.Black, surface = CardBg)) {
-                Box(Modifier.fillMaxSize().background(Color.Black).systemBarsPadding()) { PhoneRoot(openId) }
+            val scale by PhoneStore.fontScale.collectAsState()
+            val base = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, base.fontScale * scale)
+            ) {
+                MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Color.Black, surface = CardBg)) {
+                    Box(Modifier.fillMaxSize().background(Color.Black).systemBarsPadding()) { PhoneRoot(openId) }
+                }
             }
         }
     }
@@ -175,14 +181,16 @@ fun PhoneRoot(openId: MutableState<String?>) {
                     onGrant = requestHc,
                     onRefresh = { scope.launch { PhoneStore.refreshDays(ctx) } },
                 )
-                1 -> WorkoutsTab(workouts, hcStatus, granted, requestHc, onSync = { scope.launch { syncPending() } }, open = { openId.value = it })
+                1 -> NutritionScreen()
+                2 -> WorkoutsTab(workouts, hcStatus, granted, requestHc, onSync = { scope.launch { syncPending() } }, open = { openId.value = it })
                 else -> ProfileTab()
             }
         }
         NavigationBar(containerColor = CardBg) {
             NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("★", fontSize = 18.sp) }, label = { Text("Тренер") })
-            NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("♥", fontSize = 18.sp) }, label = { Text("Тренировки") })
-            NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("◉", fontSize = 18.sp) }, label = { Text("Профиль") })
+            NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("🍽", fontSize = 18.sp) }, label = { Text("Питание") })
+            NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("♥", fontSize = 18.sp) }, label = { Text("Тренировки") })
+            NavigationBarItem(selected = tab == 3, onClick = { tab = 3 }, icon = { Text("◉", fontSize = 18.sp) }, label = { Text("Профиль") })
         }
     }
 }
@@ -277,9 +285,15 @@ private fun LiveCard() {
     }
     if (confirm) AlertDialog(
         onDismissRequest = { confirm = false },
-        title = { Text("Завершить тренировку?") },
-        confirmButton = { TextButton(onClick = { confirm = false; cmd(Protocol.CMD_FINISH) }) { Text("Завершить") } },
-        dismissButton = { TextButton(onClick = { confirm = false }) { Text("Отмена") } },
+        title = { Text("Остановить тренировку?") },
+        text = { Text("«Сохранить» — тренировка попадёт в историю и Samsung Health. «Отменить» — удалить без сохранения.") },
+        confirmButton = { TextButton(onClick = { confirm = false; cmd(Protocol.CMD_FINISH) }) { Text("Сохранить") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { confirm = false; cmd(Protocol.CMD_DISCARD) }) { Text("Отменить без сохранения", color = Danger) }
+                TextButton(onClick = { confirm = false }) { Text("Назад") }
+            }
+        },
     )
 }
 

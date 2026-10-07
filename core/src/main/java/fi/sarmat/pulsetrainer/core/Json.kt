@@ -125,6 +125,7 @@ object WorkoutJson {
     fun profileToJson(p: Profile): String = JSONObject()
         .put("age", p.age).put("weight", p.weightKg).put("height", p.heightCm).put("male", p.male)
         .put("restHr", p.restHr ?: JSONObject.NULL).put("maxHr", p.maxHrOverride ?: JSONObject.NULL)
+        .put("karvonen", p.karvonen)
         .toString()
 
     fun profileFromJson(s: String?): Profile? {
@@ -138,6 +139,7 @@ object WorkoutJson {
                 male = o.optBoolean("male", true),
                 restHr = if (o.isNull("restHr")) null else o.optInt("restHr"),
                 maxHrOverride = if (o.isNull("maxHr")) null else o.optInt("maxHr"),
+                karvonen = o.optBoolean("karvonen", false),
             )
         } catch (_: Exception) { null }
     }
@@ -171,6 +173,7 @@ object Protocol {
     const val CMD_PAUSE = "pause"
     const val CMD_RESUME = "resume"
     const val CMD_FINISH = "finish"
+    const val CMD_DISCARD = "discard"
     const val CMD_SWITCH = "switch:"              // + WorkoutType.name
     const val CMD_NEXT = "next"                   // finish set / start next set
 

@@ -81,7 +81,7 @@ object Report {
         sb.appendLine("- Тренировок: ${list.size}, активное время: ${fmtDuration(list.sumOf { it.activeSec })}")
         sb.appendLine("- Калории: ${list.sumOf { it.kcalTotal }.roundToInt()} ккал (активные ${list.sumOf { it.kcalActive }.roundToInt()})")
         sb.appendLine("- Нагрузка TRIMP: ${list.sumOf { it.trimp }.roundToInt()}")
-        sb.appendLine("- Время в зонах, мин: " + (1..5).joinToString(", ") { "З$it ${min(zs[it])}" } + ", ниже З1 ${min(zs[0])}")
+        sb.appendLine("- Время в зонах, мин: " + (1..5).joinToString(", ") { "Зона $it ${min(zs[it])}" } + ", ниже З1 ${min(zs[0])}")
         val segs = list.flatMap { it.segments }
         val byType = segs.groupBy { it.type }
         sb.appendLine("- По упражнениям:")
@@ -99,7 +99,7 @@ object Report {
 
         // Weekly table
         sb.appendLine("## По неделям")
-        sb.appendLine("| Неделя с | Трен. | Время | TRIMP | З2, мин | З4–5, мин | Подходов | ккал |")
+        sb.appendLine("| Неделя с | Трен. | Время | TRIMP | Зона 2, мин | Зона 4–5, мин | Подходов | ккал |")
         sb.appendLine("|---|---|---|---|---|---|---|---|")
         list.groupBy { weekStart(it.start) }.toSortedMap().forEach { (ws, ws_list) ->
             val z = IntArray(6) { i -> ws_list.sumOf { it.zoneSec[i] } }
@@ -160,8 +160,8 @@ object Report {
             sb.appendLine("- Порог для начала следующего подхода: пульс ≤ ${Physiology.readyHr(p)}")
         }
         if (bounds != null && bounds.size == 6) {
-            sb.appendLine("- Зоны: " + (1..5).joinToString("; ") { "З$it ${bounds[it - 1]}–${bounds[it]}" } +
-                if (p?.restHr != null) " (метод Карвонена)" else " (% от макс. пульса)")
+            sb.appendLine("- Зоны: " + (1..5).joinToString("; ") { "Зона $it ${bounds[it - 1]}–${bounds[it]}" } +
+                if (p?.karvonen == true) " (метод Карвонена)" else " (% от макс. пульса, как в Polar/Samsung; зона 2 = можно говорить фразами)")
         }
         sb.appendLine("- Датчик: нагрудный Polar H10 (если не указано иное), часы Galaxy Watch Ultra 2")
         sb.appendLine()
@@ -173,7 +173,7 @@ object Report {
         sb.appendLine("- Активное время: ${fmtDuration(w.activeSec)}; источник пульса: ${w.hrSource}")
         sb.appendLine("- Пульс: средний ${w.avgHr}, максимальный ${w.maxHr}; калории ${w.kcalTotal.roundToInt()} (активные ${w.kcalActive.roundToInt()}); TRIMP ${w.trimp.roundToInt()}")
         val z = w.zoneSec
-        sb.appendLine("- Время в зонах, мин: " + (1..5).joinToString(", ") { "З$it ${min(z[it])}" } + ", ниже З1 ${min(z[0])}")
+        sb.appendLine("- Время в зонах, мин: " + (1..5).joinToString(", ") { "Зона $it ${min(z[it])}" } + ", ниже З1 ${min(z[0])}")
         sb.appendLine("- Рекомендованный отдых после сессии: ~${w.recoveryHours} ч")
         if (w.segments.size > 1) sb.appendLine("- Упражнения по порядку: " + w.segments.joinToString(" → ") { it.type.title })
         sb.appendLine()
@@ -181,7 +181,7 @@ object Report {
         w.segments.forEachIndexed { i, s ->
             sb.appendLine("### ${i + 1}. ${s.type.title} (${hm(s.start)}–${hm(s.end)})")
             sb.appendLine("- Время ${fmtDuration(s.activeSec)}, пульс ср. ${s.avgHr} / макс. ${s.maxHr}, ${s.kcalTotal.roundToInt()} ккал, TRIMP ${s.trimp.roundToInt()}")
-            sb.appendLine("- Зоны, мин: " + (1..5).joinToString(", ") { "З$it ${min(s.zoneSec[it])}" })
+            sb.appendLine("- Зоны, мин: " + (1..5).joinToString(", ") { "Зона $it ${min(s.zoneSec[it])}" })
             if (s.distanceM > 20) {
                 val pace = if (s.distanceM > 0) (s.activeSec / (s.distanceM / 1000.0)).toInt() else null
                 sb.appendLine("- Дистанция ${fmtKm(s.distanceM)} км, средний темп ${fmtPace(pace)} /км")

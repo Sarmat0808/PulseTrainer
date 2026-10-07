@@ -23,6 +23,13 @@ enum class WorkoutType(
     val lapM: Int = 0,
     /** Muscle work: affects the "rest until next workout" advice. */
     val strength: Boolean = false,
+    /** Extra sport: lives in the «Другие виды» list until you move it to the main menu. */
+    val extra: Boolean = false,
+    /** Special note shown in the menu. */
+    val note: String? = null,
+    /** Rounds mode: work / rest seconds. */
+    val roundWork: Int = 180,
+    val roundRest: Int = 60,
 ) {
     STRENGTH("Силовая (зал)", "Силовая", Mode.SETS, minRestSec = 120, strength = true),
     OUTDOOR_STRENGTH("Уличные тренажёры", "Улица", Mode.SETS, minRestSec = 90, strength = true),
@@ -35,7 +42,26 @@ enum class WorkoutType(
     BIKE_INDOOR("Велотренажёр", "Велотр.", Mode.CARDIO),
     BIKE_OUTDOOR("Велосипед (улица)", "Велосипед", Mode.CARDIO, gps = true, lapM = 5000),
     WALK("Прогулка", "Прогулка", Mode.CARDIO, gps = true, lapM = 1000),
-    RUN("Бег на улице", "Бег", Mode.CARDIO, gps = true, lapM = 1000);
+    RUN("Бег на улице", "Бег", Mode.CARDIO, gps = true, lapM = 1000),
+
+    // ----- Other sports -----
+    FOOTBALL("Футбол", "Футбол", Mode.CARDIO, gps = true, extra = true),
+    BASKETBALL("Баскетбол", "Баскетбол", Mode.CARDIO, extra = true),
+    TENNIS("Теннис (улица)", "Теннис", Mode.CARDIO, extra = true),
+    TABLE_TENNIS("Настольный теннис", "Наст. теннис", Mode.CARDIO, extra = true),
+    VOLLEYBALL("Волейбол", "Волейбол", Mode.CARDIO, extra = true),
+    BADMINTON("Бадминтон", "Бадминтон", Mode.CARDIO, extra = true),
+    SWIMMING("Бассейн", "Бассейн", Mode.CARDIO, extra = true, note = "В воде Bluetooth не работает — пульс с часов"),
+    ROWING("Гребной тренажёр", "Гребля", Mode.CARDIO, extra = true),
+    STAIRS("Степпер / лестница", "Степпер", Mode.CARDIO, extra = true),
+    HIIT("Интервальная (HIIT)", "HIIT", Mode.ROUNDS, extra = true, roundWork = 40, roundRest = 20),
+    JUMP_ROPE("Скакалка", "Скакалка", Mode.ROUNDS, extra = true, roundWork = 60, roundRest = 30),
+    HIKING("Поход / скандинавская ходьба", "Поход", Mode.CARDIO, gps = true, lapM = 1000, extra = true),
+    SKIING("Лыжи", "Лыжи", Mode.CARDIO, gps = true, lapM = 1000, extra = true),
+    SKATING("Коньки", "Коньки", Mode.CARDIO, extra = true),
+    DANCING("Танцы", "Танцы", Mode.CARDIO, extra = true),
+    YOGA("Йога / растяжка", "Йога", Mode.CARDIO, extra = true),
+    OTHER("Другая тренировка", "Другое", Mode.CARDIO, extra = true);
 
     companion object {
         fun of(name: String): WorkoutType = entries.firstOrNull { it.name == name } ?: STRENGTH
@@ -51,6 +77,8 @@ data class Profile(
     val restHr: Int? = null,
     /** Manual max HR if known from a test; otherwise estimated (Tanaka). */
     val maxHrOverride: Int? = null,
+    /** Zones from heart-rate reserve (Karvonen) instead of % of max HR. Off by default. */
+    val karvonen: Boolean = false,
 )
 
 /** One heart-rate sample: epoch millis, bpm. */

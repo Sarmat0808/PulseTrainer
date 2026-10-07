@@ -60,6 +60,23 @@ object HealthSync {
         WorkoutType.BIKE_OUTDOOR -> ExerciseSessionRecord.EXERCISE_TYPE_BIKING
         WorkoutType.WALK -> ExerciseSessionRecord.EXERCISE_TYPE_WALKING
         WorkoutType.RUN -> ExerciseSessionRecord.EXERCISE_TYPE_RUNNING
+        WorkoutType.FOOTBALL -> ExerciseSessionRecord.EXERCISE_TYPE_SOCCER
+        WorkoutType.BASKETBALL -> ExerciseSessionRecord.EXERCISE_TYPE_BASKETBALL
+        WorkoutType.TENNIS -> ExerciseSessionRecord.EXERCISE_TYPE_TENNIS
+        WorkoutType.TABLE_TENNIS -> ExerciseSessionRecord.EXERCISE_TYPE_TABLE_TENNIS
+        WorkoutType.VOLLEYBALL -> ExerciseSessionRecord.EXERCISE_TYPE_VOLLEYBALL
+        WorkoutType.BADMINTON -> ExerciseSessionRecord.EXERCISE_TYPE_BADMINTON
+        WorkoutType.SWIMMING -> ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL
+        WorkoutType.ROWING -> ExerciseSessionRecord.EXERCISE_TYPE_ROWING_MACHINE
+        WorkoutType.STAIRS -> ExerciseSessionRecord.EXERCISE_TYPE_STAIR_CLIMBING_MACHINE
+        WorkoutType.HIIT -> ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING
+        WorkoutType.JUMP_ROPE -> ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT
+        WorkoutType.HIKING -> ExerciseSessionRecord.EXERCISE_TYPE_HIKING
+        WorkoutType.SKIING -> ExerciseSessionRecord.EXERCISE_TYPE_SKIING
+        WorkoutType.SKATING -> ExerciseSessionRecord.EXERCISE_TYPE_ICE_SKATING
+        WorkoutType.DANCING -> ExerciseSessionRecord.EXERCISE_TYPE_DANCING
+        WorkoutType.YOGA -> ExerciseSessionRecord.EXERCISE_TYPE_YOGA
+        WorkoutType.OTHER -> ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT
     }
 
     private fun notes(s: Segment): String {

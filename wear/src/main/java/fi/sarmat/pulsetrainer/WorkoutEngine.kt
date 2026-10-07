@@ -63,6 +63,7 @@ object WorkoutEngine {
         val lapNo: Int = 1,
         val segZoneSec: IntArray = IntArray(6),
         val finishedId: String? = null,
+        val discarded: Boolean = false,
     )
 
     interface Hooks {
@@ -236,6 +237,15 @@ object WorkoutEngine {
         hooks?.stopped()
     }
 
+    /** Cancel without saving: nothing goes to history, phone or Samsung Health. */
+    fun discard() {
+        if (!running) return
+        running = false
+        hooks?.let { h -> try { PhoneLink.sendLive(h.context, live(false)) } catch (_: Exception) {} }
+        ui.value = Ui(running = false, discarded = true)
+        hooks?.stopped()
+    }
+
     fun clearFinished() {
         if (!running) ui.value = Ui()
     }
@@ -330,7 +340,7 @@ object WorkoutEngine {
         reps = 0
         readyNotified = false; adviceGiven = false; advice = null; lastHrr60 = null
         roundNo = 1
-        roundLeft = if (t.mode == Mode.ROUNDS) ROUND_WORK else 0
+        roundLeft = if (t.mode == Mode.ROUNDS) t.roundWork else 0
         segDist = 0.0
         lastLoc = null
         gpsFix = false
@@ -349,7 +359,7 @@ object WorkoutEngine {
                     sets[sets.lastIndex] = sets.last().copy(restSec = phaseSec)
                 }
             }
-            Mode.ROUNDS -> if (phase == Phase.WORK && roundLeft < ROUND_WORK - 5) {
+            Mode.ROUNDS -> if (phase == Phase.WORK && roundLeft < type.roundWork - 5) {
                 sets.add(SetRecord(setStart, now, 0, setPeak, null, null))
             }
             Mode.CARDIO -> if (laps.isNotEmpty() && segDist - lapStartDist > 50) {
@@ -429,7 +439,7 @@ object WorkoutEngine {
         sets.add(SetRecord(setStart, now, 0, setPeak, null, null))
         phase = Phase.REST
         phaseSec = 0
-        roundLeft = ROUND_REST
+        roundLeft = type.roundRest
         restPeak = max(setPeak, curHr ?: 0)
         Haptics.phase()
     }
@@ -443,7 +453,7 @@ object WorkoutEngine {
         phase = Phase.WORK
         phaseSec = 0
         roundNo++
-        roundLeft = ROUND_WORK
+        roundLeft = type.roundWork
         setStart = now
         setPeak = 0
         Haptics.phase()

@@ -9,16 +9,23 @@ import kotlin.math.sqrt
  * All training science lives here.
  *
  * - Max HR: Tanaka et al. 2001, HRmax = 208 - 0.7 * age (unless measured).
- * - Zones: 5 zones at 50/60/70/80/90/100 %. If resting HR is known, Karvonen
- *   (heart-rate reserve) is used, which fits the individual better.
+ * - Zones: 5 zones at 50/60/70/80/90/100 % of max HR — the same model Polar and
+ *   Samsung Health use. Zone 2 (60–70 %) matches the "talk test": you can speak in
+ *   full sentences. Karvonen (heart-rate reserve) is optional: it shifts zones up
+ *   and often puts real zone 2 too high for people who are not yet well trained.
  * - Calories: Keytel et al. 2005 heart-rate equations.
  * - Load: Edwards TRIMP (minutes in zone x zone number).
  * - Readiness: ln(RMSSD) vs. personal 7-day baseline (Plews et al. 2012 approach).
  */
 object Physiology {
 
-    val ZONE_NAMES = arrayOf("Покой", "З1 Восстановление", "З2 Сердце / жир", "З3 Аэробная", "З4 Порог", "З5 Максимум")
-    val ZONE_SHORT = arrayOf("—", "З1", "З2", "З3", "З4", "З5")
+    val ZONE_NAMES = arrayOf("Ниже зон", "Зона 1 · Восстановление", "Зона 2 · Сердце и жир", "Зона 3 · Аэробная", "Зона 4 · Порог", "Зона 5 · Максимум")
+    val ZONE_SHORT = arrayOf("Покой", "Зона 1", "Зона 2", "Зона 3", "Зона 4", "Зона 5")
+    /** What each zone feels like (talk test). */
+    val ZONE_FEEL = arrayOf(
+        "", "Очень легко, можно петь", "Легко: говорите полными фразами", "Говорить можно, но короткими фразами",
+        "Тяжело: только отдельные слова", "Предел: говорить невозможно"
+    )
 
     fun maxHr(p: Profile): Int = p.maxHrOverride ?: (208.0 - 0.7 * p.age).roundToInt()
 
@@ -28,7 +35,7 @@ object Physiology {
         val rest = p.restHr
         val pct = doubleArrayOf(0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
         return IntArray(6) { i ->
-            if (rest != null && rest in 30..100) (rest + pct[i] * (max - rest)).roundToInt()
+            if (p.karvonen && rest != null && rest in 30..100) (rest + pct[i] * (max - rest)).roundToInt()
             else (pct[i] * max).roundToInt()
         }
     }
@@ -48,7 +55,7 @@ object Physiology {
     fun readyHr(p: Profile): Int {
         val max = maxHr(p)
         val rest = p.restHr
-        return if (rest != null && rest in 30..100) (rest + 0.5 * (max - rest)).roundToInt()
+        return if (p.karvonen && rest != null && rest in 30..100) (rest + 0.5 * (max - rest)).roundToInt()
         else (0.65 * max).roundToInt()
     }
 
@@ -80,15 +87,16 @@ object Physiology {
         val trimp = segments.sumOf { it.trimp }
         val strengthSets = segments.filter { it.type.strength }.sumOf { it.sets.size }
         val cardio = when {
-            trimp < 40 -> 12
-            trimp < 90 -> 24
-            trimp < 160 -> 36
-            trimp < 250 -> 48
+            trimp < 20 -> 0      // very light: no special recovery needed
+            trimp < 50 -> 12
+            trimp < 100 -> 24
+            trimp < 170 -> 36
+            trimp < 260 -> 48
             else -> 72
         }
         val muscle = when {
             strengthSets == 0 -> 0
-            strengthSets < 6 -> 36
+            strengthSets < 6 -> 24
             strengthSets < 16 -> 48
             else -> 72
         }
@@ -98,6 +106,7 @@ object Physiology {
     fun recoveryText(hours: Int, segments: List<Segment>): String {
         val strength = segments.any { it.type.strength }
         val sb = StringBuilder()
+        if (hours == 0) return "Нагрузка была лёгкой — специального восстановления не нужно."
         sb.append("Отдых до следующей тяжёлой тренировки: ~$hours ч.")
         if (strength) sb.append(" Те же группы мышц — не раньше чем через 48 ч; для массы 2 раза в неделю на группу.")
         sb.append(" Лёгкое кардио в зоне 2 (20–40 мин) можно уже завтра — оно ускоряет восстановление и укрепляет сердце.")

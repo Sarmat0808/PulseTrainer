@@ -76,6 +76,7 @@ class ControlListenerService : WearableListenerService() {
                 cmd == Protocol.CMD_PAUSE -> e.setPaused(true)
                 cmd == Protocol.CMD_RESUME -> e.setPaused(false)
                 cmd == Protocol.CMD_FINISH -> e.finish()
+                cmd == Protocol.CMD_DISCARD -> e.discard()
                 cmd == Protocol.CMD_NEXT -> e.nextPhase()
                 cmd.startsWith(Protocol.CMD_SWITCH) -> e.switchTo(WorkoutType.of(cmd.removePrefix(Protocol.CMD_SWITCH)))
             }

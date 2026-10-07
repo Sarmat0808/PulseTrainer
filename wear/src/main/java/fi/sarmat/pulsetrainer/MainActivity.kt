@@ -37,6 +37,9 @@ sealed interface Scr {
     data object Hrv : Scr
     data object Profile : Scr
     data object History : Scr
+    data class Arrange(val type: WorkoutType) : Scr
+    data object More : Scr
+    data object Order : Scr
 }
 
 class MainActivity : ComponentActivity() {
@@ -99,6 +102,11 @@ fun AppRoot() {
         push(Scr.Summary(id))
         WorkoutEngine.clearFinished()
     }
+    LaunchedEffect(ui.discarded) {
+        if (!ui.discarded) return@LaunchedEffect
+        stack.removeAll { it != Scr.Home }
+        WorkoutEngine.clearFinished()
+    }
     LaunchedEffect(Unit) {
         MainActivity.stemPresses.collect { if (stack.lastOrNull() != Scr.Switch) push(Scr.Switch) }
     }
@@ -129,6 +137,9 @@ fun AppRoot() {
                     Scr.Hrv -> HrvScreen()
                     Scr.Profile -> ProfileScreen()
                     Scr.History -> HistoryScreen(open = { push(Scr.Summary(it)) })
+                    is Scr.Arrange -> ArrangeScreen(current.type, onStart = ::startWorkout)
+                    Scr.More -> MoreScreen(onStart = ::startWorkout, open = { push(it) })
+                    Scr.Order -> OrderScreen()
                     else -> {}
                 }
             } }

@@ -44,12 +44,14 @@ object Storage {
         male = prefs.getBoolean("male", true),
         restHr = prefs.getInt("restHr", 0).takeIf { it > 0 },
         maxHrOverride = prefs.getInt("maxHr", 0).takeIf { it > 0 },
+        karvonen = prefs.getBoolean("karvonen", false),
     )
 
     fun saveProfile(p: Profile) {
         prefs.edit()
             .putInt("age", p.age).putFloat("weight", p.weightKg.toFloat()).putInt("height", p.heightCm)
             .putBoolean("male", p.male).putInt("restHr", p.restHr ?: 0).putInt("maxHr", p.maxHrOverride ?: 0)
+            .putBoolean("karvonen", p.karvonen)
             .apply()
         profile.value = p
         PhoneLink.sendProfile(appCtx)
@@ -78,9 +80,55 @@ object Storage {
         prefs.edit().putString("recent", list.joinToString(",") { it.name }).apply()
     }
 
+    /** Switch list: recently used first, then the rest in your order. */
     fun orderedTypes(): List<WorkoutType> {
         val r = recentTypes()
-        return r + WorkoutType.entries.filter { it !in r }
+        return r + typeOrder().filter { it !in r }
+    }
+
+    // ---------- Your own order of exercises + main menu / «Другие виды» ----------
+
+    fun typeOrder(): List<WorkoutType> {
+        val saved = (prefs.getString("order", "") ?: "").split(',').filter { it.isNotBlank() }
+            .mapNotNull { n -> WorkoutType.entries.firstOrNull { it.name == n } }.distinct()
+        return saved + WorkoutType.entries.filter { it !in saved }
+    }
+
+    private fun saveOrder(list: List<WorkoutType>) {
+        prefs.edit().putString("order", list.joinToString(",") { it.name }).apply()
+    }
+
+    fun hiddenTypes(): Set<WorkoutType> {
+        val raw = prefs.getString("hidden", null) ?: return WorkoutType.entries.filter { it.extra }.toSet()
+        return raw.split(',').filter { it.isNotBlank() }.mapNotNull { n -> WorkoutType.entries.firstOrNull { it.name == n } }.toSet()
+    }
+
+    fun setHidden(t: WorkoutType, hidden: Boolean) {
+        val set = hiddenTypes().toMutableSet()
+        if (hidden) set += t else set -= t
+        prefs.edit().putString("hidden", set.joinToString(",") { it.name }).apply()
+    }
+
+    fun mainTypes(): List<WorkoutType> { val h = hiddenTypes(); return typeOrder().filter { it !in h } }
+    fun moreTypes(): List<WorkoutType> { val h = hiddenTypes(); return typeOrder().filter { it in h } }
+
+    /** Move an exercise up (delta = -1) or down (+1) among the main-menu items. */
+    fun move(t: WorkoutType, delta: Int) {
+        val order = typeOrder().toMutableList()
+        val visible = mainTypes()
+        val i = visible.indexOf(t)
+        val j = i + delta
+        if (i < 0 || j !in visible.indices) return
+        val other = visible[j]
+        val a = order.indexOf(t); val b = order.indexOf(other)
+        order[a] = other; order[b] = t
+        saveOrder(order)
+    }
+
+    fun moveToTop(t: WorkoutType) {
+        val order = typeOrder().toMutableList()
+        order.remove(t); order.add(0, t)
+        saveOrder(order)
     }
 
     // ---------- Workouts ----------

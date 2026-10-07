@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit) {
@@ -207,7 +208,7 @@ private fun StatsCard(days: List<fi.sarmat.pulsetrainer.core.DailyStats>, p: Pro
         StatRow("Шаги сегодня", today?.steps?.toString() ?: "—", avg { it.steps }?.let { "ср. 7 дн: %.0f".format(it) })
         StatRow("Кислород (SpO2)", today?.spo2?.let { "%.0f%%".format(it) } ?: "—", null)
         StatRow("Вес", "%.1f кг".format(p.weightKg), days.lastOrNull { it.bodyFatPct != null }?.bodyFatPct?.let { "жир %.1f%%".format(it) })
-        StatRow("Зоны пульса", Physiology.zoneBounds(p).let { "З2 ${it[1]}–${it[2]}" }, "макс. ${Physiology.maxHr(p)}")
+        StatRow("Зона 2 (сердце)", Physiology.zoneBounds(p).let { "${it[1]}–${it[2]}" }, "макс. пульс ${Physiology.maxHr(p)}")
     }
 }
 
@@ -283,7 +284,23 @@ fun ProfileTab() {
                 if (p.maxHrOverride != null) Text("Сбросить макс. пульс к формуле", color = Accent, fontSize = 13.sp,
                     modifier = Modifier.clickable { p = p.copy(maxHrOverride = null) })
                 val b = Physiology.zoneBounds(p)
-                Text((1..5).joinToString("\n") { "${Physiology.ZONE_NAMES[it]}: ${b[it - 1]}–${b[it]}" }, color = Dim, fontSize = 13.sp)
+                Text("Ваши зоны пульса", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+                for (z in 1..5) {
+                    Column(Modifier.padding(vertical = 2.dp)) {
+                        Text("${Physiology.ZONE_NAMES[z]}: ${b[z - 1]}–${b[z]}", color = ZoneColors[z], fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text(Physiology.ZONE_FEEL[z], color = Dim, fontSize = 13.sp)
+                    }
+                }
+                Row(Modifier.fillMaxWidth().clickable { p = p.copy(karvonen = !p.karvonen) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Метод расчёта зон", color = Color.White, fontSize = 15.sp)
+                        Text(if (p.karvonen) "Карвонен (от резерва пульса) — зоны выше, для тренированных"
+                            else "% от макс. пульса — как в Polar и Samsung (рекомендуется)", color = Dim, fontSize = 13.sp)
+                    }
+                    androidx.compose.material3.Switch(checked = p.karvonen, onCheckedChange = { p = p.copy(karvonen = it) })
+                }
+                Text("Проверка зоны 2: можете говорить полными фразами. Если только отдельными словами — вы выше зоны 2, сбавьте темп.",
+                    color = Warn, fontSize = 13.sp)
                 Button(
                     onClick = {
                         val toSave = p
@@ -297,6 +314,7 @@ fun ProfileTab() {
                 if (stored == null) Text("Профиль ещё не пришёл с часов — откройте PulseTrainer на часах.", color = Warn, fontSize = 12.sp)
             }
         }
+        item { FontCard() }
         item { BodyCard() }
         item { RemindersCard() }
         item {
@@ -469,5 +487,18 @@ private fun Toggle(text: String, on: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(vertical = 4.dp)) {
         Text(text, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
         androidx.compose.material3.Switch(checked = on, onCheckedChange = onChange)
+    }
+}
+
+
+// ======================= Font size =======================
+
+@Composable
+private fun FontCard() {
+    val scale by PhoneStore.fontScale.collectAsState()
+    Section {
+        Text("Размер шрифта", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Stepper("Масштаб", "${(scale * 100).roundToInt()}%", 0.05) { d -> PhoneStore.setFontScale(scale + d.toFloat()) }
+        Text("Так будет выглядеть обычный текст в приложении.", color = Color.White, fontSize = 15.sp)
     }
 }

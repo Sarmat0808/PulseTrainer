@@ -51,12 +51,21 @@ object Share {
                 .put("arm_cm", it.armCm).put("thigh_cm", it.thighCm).put("body_fat_pct", it.bodyFatPct))
         }
         o.put("body_measurements", body)
+        val food = JSONArray()
+        FoodStore.history(90).filter { it.entries.isNotEmpty() || it.forgot }.forEach { h ->
+            val es = JSONArray()
+            h.entries.forEach { e -> es.put(JSONObject().put("t", e.time).put("name", e.name).put("amount", e.amount).put("p", e.p).put("f", e.f).put("c", e.c).put("ml", e.drinkMl)) }
+            food.put(JSONObject().put("date", h.date.toString()).put("kcal", h.totals.kcal).put("p", h.totals.p).put("f", h.totals.f).put("c", h.totals.c)
+                .put("fluid_ml", h.totals.fluidMl).put("forgot", h.forgot).put("target_kcal", h.target.kcal).put("target_p", h.target.p).put("entries", es))
+        }
+        o.put("nutrition", food)
         return o.toString(1)
     }
 
     /** One workout: full Markdown report + CSV/JSON (+ GPX if there is a route). */
     fun workout(ctx: Context, w: Workout, withFiles: Boolean) {
-        val text = Report.workoutText(w, PhoneStore.profile.value, PhoneStore.hrv.value, PhoneStore.days.value, PhoneStore.goal.value)
+        val text = Report.workoutText(w, PhoneStore.profile.value, PhoneStore.hrv.value, PhoneStore.days.value, PhoneStore.goal.value) +
+            bodyText(w.start - 30 * 86400_000L) + nutritionText(3)
         if (!withFiles) { sendText(ctx, "PulseTrainer: ${w.title}", text); return }
         val dir = shareDir(ctx)
         val base = "pulsetrainer_${stamp(w.start)}"
@@ -76,7 +85,7 @@ object Share {
         val from = System.currentTimeMillis() - days * 86400_000L
         val list = PhoneStore.workouts.value.filter { it.start >= from }.sortedBy { it.start }
         val text = Report.periodText(list, days, PhoneStore.profile.value, PhoneStore.hrv.value, PhoneStore.days.value, PhoneStore.goal.value, PhoneStore.weights.value) +
-            bodyText(from)
+            bodyText(from) + nutritionText(days)
         if (!withFiles) { sendText(ctx, "PulseTrainer: $days дней", text); return }
         val dir = shareDir(ctx)
         val base = "pulsetrainer_${days}d_${stamp(System.currentTimeMillis())}"
@@ -98,6 +107,30 @@ object Share {
         val sb = StringBuilder("\n## Замеры тела\n| Дата | Вес | Талия | Грудь | Бицепс | Бедро | Жир % |\n|---|---|---|---|---|---|---|\n")
         fun v(x: Double?) = x?.let { "%.1f".format(Locale.US, it) } ?: "—"
         list.forEach { sb.append("| ${f.format(Date(it.time))} | ${v(it.weightKg)} | ${v(it.waistCm)} | ${v(it.chestCm)} | ${v(it.armCm)} | ${v(it.thighCm)} | ${v(it.bodyFatPct)} |\n") }
+        return sb.toString()
+    }
+
+    private fun nutritionText(days: Int): String {
+        val hist = FoodStore.history(days).filter { it.entries.isNotEmpty() || it.forgot }
+        if (hist.isEmpty()) return ""
+        val sb = StringBuilder("\n## Питание по дням (взвешенные продукты)\n")
+        sb.append("| Дата | ккал | Белки | Жиры | Углеводы | Жидкость, мл | Норма (ккал/белок) | Итог |\n|---|---|---|---|---|---|---|---|\n")
+        hist.sortedBy { it.date }.forEach { h ->
+            val st = when {
+                h.forgot -> "не внесено"
+                fi.sarmat.pulsetrainer.core.Nutrition.reached(h.totals, h.target) -> "норма ✓"
+                else -> "недобор"
+            }
+            sb.append("| ${h.date} | ${h.totals.kcal.toInt()} | ${h.totals.p.toInt()} | ${h.totals.f.toInt()} | ${h.totals.c.toInt()} | ${h.totals.fluidMl} | ${h.target.kcal}/${h.target.p} | $st |\n")
+        }
+        val recent = hist.sortedByDescending { it.date }.take(3).filter { it.entries.isNotEmpty() }
+        recent.forEach { h ->
+            sb.append("\n**${h.date}:** ")
+            sb.append(h.entries.joinToString("; ") { e ->
+                "${e.name} ${if (e.drinkMl > 0) "${e.drinkMl} мл" else "${e.amount.toInt()} г"} (Б ${e.p.toInt()} Ж ${e.f.toInt()} У ${e.c.toInt()})"
+            })
+            sb.append("\n")
+        }
         return sb.toString()
     }
 
