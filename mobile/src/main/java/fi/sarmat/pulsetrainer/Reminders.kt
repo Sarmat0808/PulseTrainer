@@ -30,6 +30,11 @@ object Reminders {
     /** keep = true on app start (do not disturb an existing schedule); false after settings change. */
     fun schedule(ctx: Context, keep: Boolean) {
         val wm = WorkManager.getInstance(ctx)
+        // Hourly check: "now is a good time for the protein drink / bar".
+        wm.enqueueUniquePeriodicWork(
+            "snack-tip", ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<SnackWorker>(1, TimeUnit.HOURS).build()
+        )
         if (PhoneStore.remindMorning) enqueue(ctx, MORNING, PhoneStore.remindMorningHour, keep) else wm.cancelUniqueWork(MORNING)
         if (PhoneStore.remindEvening) enqueue(ctx, EVENING, EVENING_HOUR, keep) else wm.cancelUniqueWork(EVENING)
     }
@@ -92,6 +97,28 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                     Reminders.notify(ctx, 103, "Время прогулки", listOf("Сегодня $steps шагов. 30 мин спокойной ходьбы ускорят восстановление."))
             }
         }
+        return Result.success()
+    }
+}
+
+
+/** Reminds when the protein drink or bar would help to reach the day's norm (max once per 3 h, 09–22). */
+class SnackWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val ctx = applicationContext
+        val hour = java.time.LocalTime.now().hour
+        if (hour !in 9..22) return Result.success()
+        val prefs = ctx.getSharedPreferences("snack", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        if (now - prefs.getLong("last", 0L) < 3 * 3600_000L) return Result.success()
+        val today = java.time.LocalDate.now()
+        val lastEnd = (PhoneStore.workouts.value.filter { fi.sarmat.pulsetrainer.core.Physiology.isRealWorkout(it) }.map { it.end } +
+            PhoneStore.ext.value.filter { it.minutes >= 20 }.map { it.end }).maxOrNull()
+        val tip = fi.sarmat.pulsetrainer.core.Nutrition.snackTip(
+            FoodStore.foods(), FoodStore.entries(today), FoodStore.targets(today), now, lastEnd, hour,
+        ) ?: return Result.success()
+        prefs.edit().putLong("last", now).apply()
+        Reminders.notify(ctx, 104, tip.title, listOf(tip.why, "Откройте «Еда» → «Выпил / съел — добавить»."))
         return Result.success()
     }
 }

@@ -63,7 +63,7 @@ private val NUTRITION_CARDS = linkedMapOf(
     "status" to "Статус дня (норма набрана / осталось)",
     "actions" to "Кнопки: + Еда / Забыл внести",
     "macros" to "Белки, жиры, углеводы, жидкость",
-    "drinks" to "Напитки — одно нажатие",
+    "drinks" to "Напитки и перекусы — одно нажатие",
     "table" to "Съедено сегодня (список)",
     "fill" to "Чем добрать норму",
     "workout" to "До и после тренировки",
@@ -112,22 +112,9 @@ fun NutritionScreen() {
         }
         val renderCard: @Composable (String) -> Unit = { id ->
                 when (id) {
-                    "status" -> {
-                        val (bg, title, sub) = when {
-                            reached -> Triple(Good, "✓ ДНЕВНАЯ НОРМА НАБРАНА", "Белок и калории на месте — отлично!")
-                            forgot -> Triple(Color(0xFF4A4F57), "ДЕНЬ БЕЗ ЗАПИСЕЙ", "Отмечено «забыл внести» — в статистику не идёт")
-                            else -> Triple(
-                                Danger, "ОСТАЛОСЬ: ${(target.kcal - total.kcal).coerceAtLeast(0.0).roundToInt()} ккал",
-                                "Белок: ещё ${(target.p - total.p).coerceAtLeast(0.0).roundToInt()} г из ${target.p}"
-                            )
-                        }
-                        Column(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(bg).padding(18.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                            Text(sub, color = Color.White, fontSize = 15.sp, textAlign = TextAlign.Center)
-                        }
+                    "status" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SnackTipCard(date, foods, entries, target)
+                        StatusBox(reached, forgot, target, total)
                     }
                     "macros" -> Section {
                         MacroBar("Калории", total.kcal, target.kcal.toDouble(), "ккал", Color(0xFFF2994A))
@@ -186,6 +173,15 @@ fun NutritionScreen() {
                                     FoodStore.add(date, f, (f.pieceG ?: 250).toDouble())
                                     Toast.makeText(ctx, "${f.name}: +${f.pieceG ?: 250} мл", Toast.LENGTH_SHORT).show()
                                 }, label = { Text("${f.name} ${f.pieceG ?: 250}", fontSize = 15.sp) })
+                            }
+                        }
+                        Text("Перекусы — одно нажатие", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Nutrition.QUICK_SNACKS.mapNotNull { id -> foods.firstOrNull { it.id == id } }.forEach { f ->
+                                AssistChip(onClick = {
+                                    FoodStore.add(date, f, (f.pieceG ?: 100).toDouble())
+                                    Toast.makeText(ctx, "${f.name}: +${f.pieceName ?: "${f.pieceG} г"}", Toast.LENGTH_SHORT).show()
+                                }, label = { Text("${f.name} · ${(f.p * (f.pieceG ?: 100) / 100).roundToInt()} г белка", fontSize = 14.sp) })
                             }
                         }
                         val coffee = entries.count { it.foodId == "coffee" }
@@ -492,4 +488,48 @@ private fun NumIn(label: String, value: String, modifier: Modifier, onChange: (S
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = modifier,
     )
+}
+
+
+@Composable
+private fun StatusBox(reached: Boolean, forgot: Boolean, target: fi.sarmat.pulsetrainer.core.Targets, total: DayTotals) {
+    val (bg, title, sub) = when {
+        reached -> Triple(Good, "✓ ДНЕВНАЯ НОРМА НАБРАНА", "Белок и калории на месте — отлично!")
+        forgot -> Triple(Color(0xFF4A4F57), "ДЕНЬ БЕЗ ЗАПИСЕЙ", "Отмечено «забыл внести» — в статистику не идёт")
+        else -> Triple(
+            Danger, "ОСТАЛОСЬ: ${(target.kcal - total.kcal).coerceAtLeast(0.0).roundToInt()} ккал",
+            "Белок: ещё ${(target.p - total.p).coerceAtLeast(0.0).roundToInt()} г из ${target.p}"
+        )
+    }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(bg).padding(18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Text(sub, color = Color.White, fontSize = 15.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/** «Сейчас самое время …» — protein drink / bar with one tap. */
+@Composable
+private fun SnackTipCard(date: LocalDate, foods: List<Food>, entries: List<FoodEntry>, target: fi.sarmat.pulsetrainer.core.Targets) {
+    if (date != LocalDate.now()) return
+    val ctx = LocalContext.current
+    val workouts by PhoneStore.workouts.collectAsState()
+    val ext by PhoneStore.ext.collectAsState()
+    val lastEnd = (workouts.filter { fi.sarmat.pulsetrainer.core.Physiology.isRealWorkout(it) }.map { it.end } +
+        ext.filter { it.minutes >= 20 }.map { it.end }).maxOrNull()
+    val tip = Nutrition.snackTip(foods, entries, target, System.currentTimeMillis(), lastEnd,
+        java.time.LocalTime.now().hour) ?: return
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xFF233A2C)).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("💡 " + tip.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(tip.why, color = Color.White, fontSize = 15.sp)
+        Button(onClick = {
+            FoodStore.add(date, tip.food, tip.grams)
+            Toast.makeText(ctx, "Добавлено: ${tip.food.name}", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.fillMaxWidth()) { Text("Выпил / съел — добавить", fontSize = 16.sp) }
+    }
 }

@@ -57,7 +57,7 @@ fun ListScreen(content: ScalingLazyListScope.() -> Unit) {
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize().background(Color.Black),
         state = state,
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 28.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 30.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content
@@ -77,14 +77,16 @@ fun ItemChip(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {
-            Box(Modifier.size(34.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF2D6CDF)), contentAlignment = Alignment.Center) {
-                SportIcon(icon, 22.dp, Color.White)
+            Box(Modifier.size(32.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF2D6CDF)), contentAlignment = Alignment.Center) {
+                SportIcon(icon, 20.dp, Color.White)
             }
-            androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
-            if (sub != null) Text(sub, fontSize = 15.sp, color = Colors.dim, maxLines = 3)
+            // With an icon the row is narrower on the round screen: slightly smaller text, never cut mid-word.
+            Text(label, fontSize = if (icon != null) 17.sp else 18.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                maxLines = 2, lineHeight = if (icon != null) 19.sp else 21.sp)
+            if (sub != null) Text(sub, fontSize = if (icon != null) 14.sp else 15.sp, color = Colors.dim, maxLines = 2, lineHeight = 16.sp)
         }
         if (star) Text("★", fontSize = 18.sp, color = Color(0xFFF2C94C), modifier = Modifier.padding(start = 4.dp))
     }
@@ -167,11 +169,11 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
         }
         if (fav.isNotEmpty()) {
             item { ListHeader { Text("★ Избранное", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF2C94C)) } }
-            items(fav) { t -> ItemChip(t.title, null, icon = t, star = true, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) } }
+            items(fav) { t -> ItemChip(t.short, null, icon = t, star = true, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) } }
         }
         item { ListHeader { Text("Все тренировки", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
         items(types.filter { it !in fav }) { t ->
-            ItemChip(t.title, typeHint(t), icon = t, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
+            ItemChip(t.short, typeHint(t), icon = t, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
         }
         item { Line("Долгое нажатие — ★ избранное, порядок, убрать", Colors.dim, 14) }
         item { ItemChip("Другие виды спорта", "Футбол, бассейн, теннис и ещё $moreCount", Color(0xFF233142)) { open(Scr.More) } }
@@ -242,7 +244,7 @@ fun MoreScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
         item { ListHeader { Text("Другие виды спорта", fontSize = 16.sp) } }
         item { Line("Нажмите — начать. Долгое нажатие — добавить в главное меню.", Colors.dim, 13) }
         items(list) { t ->
-            ItemChip(t.title, t.note ?: typeHint(t), icon = t, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
+            ItemChip(t.short, t.note ?: typeHint(t), icon = t, onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
         }
     }
 }
@@ -330,7 +332,7 @@ fun SwitchScreen(onPick: (WorkoutType) -> Unit) {
         item { ListHeader { Text(if (ui.running) "Сменить на…" else "Начать") } }
         if (ui.running) item { Line("Сейчас: ${ui.type.title}", Colors.dim, 13) }
         items(types.filter { !ui.running || it != ui.type }) { t ->
-            ItemChip(t.title, typeHint(t), icon = t) { onPick(t) }
+            ItemChip(t.short, typeHint(t), icon = t) { onPick(t) }
         }
     }
 }

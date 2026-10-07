@@ -140,6 +140,10 @@ object Nutrition {
 
     /** Extended everyday products (typical values per 100 g / 100 ml; check the package for exact numbers). */
     private val MORE: List<Food> get() = listOf(
+        // ----- Store products (values from the package) -----
+        Food("coop_protein_drink", "Coop Protein Drink (клубника)", 8.7, 1.5, 7.9, "Белок", 250, "пакет 250 мл", drink = true),
+        Food("coop_protein_bar", "Coop Protein Bar Choco", 32.0, 12.0, 38.0, "Белок", 50, "батончик 50 г"),
+
         // ----- Dairy -----
         Food("yogurt_drink", "Йогурт питьевой 1,5–2,5%", 3.0, 2.0, 11.0, "Молочное", 290, "бутылка", drink = true),
         Food("yogurt_drink_protein", "Йогурт питьевой протеиновый", 6.5, 0.5, 6.5, "Молочное", 330, "бутылка", drink = true),
@@ -316,7 +320,10 @@ object Nutrition {
     )
 
     /** Drinks shown as one-tap buttons (the full list is in «+ Еда»). */
-    val QUICK_DRINKS = listOf("water", "tea", "coffee", "milk", "kefir", "yogurt_drink")
+    val QUICK_DRINKS = listOf("water", "tea", "coffee", "milk", "kefir", "yogurt_drink", "coop_protein_drink")
+
+    /** Packaged snacks added with one tap (a whole bar). */
+    val QUICK_SNACKS = listOf("coop_protein_bar")
 
     val CATEGORIES = listOf("Белок", "Мясо и рыба", "Молочное", "Крупы", "Овощи и фрукты", "Масла и добавки", "Готовые блюда", "Сладкое и снеки", "Напитки", "Мои продукты")
 
@@ -373,6 +380,47 @@ object Nutrition {
 
     /** One ready-to-add option: this product, this many grams. */
     data class Suggestion(val food: Food, val grams: Double, val text: String, val enough: Boolean)
+
+    /** "Now is a good time for …" — the protein drink or bar, when it actually helps. */
+    data class SnackTip(val food: Food, val grams: Double, val title: String, val why: String)
+
+    /**
+     * When to take the store protein drink / bar:
+     * - within ~2 h after a workout (muscle protein synthesis; 20–40 g protein — Morton 2018, ISSN 2017);
+     * - ≥ 3 h since the last protein meal and protein for the day is behind schedule
+     *   (spread 4–5 portions of ~0.4 g/kg through the day);
+     * - evening, protein still short by ≥ 20 g — finish the day's norm.
+     * The drink is preferred after training (fast, liquid, carbs for glycogen); the bar between meals.
+     */
+    fun snackTip(
+        foods: List<Food>, entries: List<FoodEntry>, target: Targets, now: Long, lastWorkoutEnd: Long?,
+        hourOfDay: Int,
+    ): SnackTip? {
+        val byId = foods.associateBy { it.id }
+        val drink = byId["coop_protein_drink"] ?: return null
+        val bar = byId["coop_protein_bar"] ?: return null
+        val t = DayTotals.of(entries)
+        val pGap = target.p - t.p
+        val kGap = target.kcal - t.kcal
+        if (pGap < 12 || kGap < 120) return null
+        val lastProtein = entries.filter { it.p >= 10 }.maxOfOrNull { it.time }
+        val hSinceProtein = lastProtein?.let { (now - it) / 3600_000.0 } ?: 99.0
+        val afterWorkout = lastWorkoutEnd != null && now - lastWorkoutEnd in 0..(2 * 3600_000L) && hSinceProtein > 0.75
+        // Share of the day's protein that should be eaten by now (07:00 → 21:00).
+        val expected = ((hourOfDay - 7) / 14.0).coerceIn(0.0, 1.0)
+        val behind = t.p < target.p * expected - 15
+        val dg = drink.pieceG ?: 250; val bg = bar.pieceG ?: 50
+        val dp = (drink.p * dg / 100).roundToInt(); val bp = (bar.p * bg / 100).roundToInt()
+        return when {
+            afterWorkout -> SnackTip(drink, dg.toDouble(), "Самое время: протеиновый напиток",
+                "После тренировки прошло меньше 2 ч — $dp г белка и углеводы сейчас лучше всего пойдут в мышцы. Осталось белка: ${pGap.roundToInt()} г.")
+            hourOfDay in 19..22 && pGap >= 20 -> SnackTip(if (pGap >= 28) drink else bar, (if (pGap >= 28) dg else bg).toDouble(),
+                "Вечером добрать белок", "До нормы не хватает ${pGap.roundToInt()} г белка. ${if (pGap >= 28) "Напиток даст $dp г" else "Батончик даст $bp г"} — и норма почти закрыта.")
+            hSinceProtein >= 3 && behind && hourOfDay in 10..18 -> SnackTip(bar, bg.toDouble(), "Перекус: протеиновый батончик",
+                "${hSinceProtein.roundToInt().coerceAtMost(12)} ч без белка, а по плану дня вы отстаёте на ${(target.p * expected - t.p).roundToInt()} г. Батончик — $bp г белка, удобно между приёмами пищи.")
+            else -> null
+        }
+    }
 
     private data class Src(val id: String, val maxG: Double)
 
