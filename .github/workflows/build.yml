@@ -26,12 +26,12 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
-          gradle --no-daemon assembleRelease 2>&1 | tee build.log
+          gradle --no-daemon --continue assembleRelease 2>&1 | tee build.log
 
       - name: Report build errors
         if: failure()
         run: |
-          grep -E "^e: |error:|What went wrong|Could not|> " build.log | grep -v "^> Task" | head -45 | while IFS= read -r line; do
+          grep -E "^e: |error:|What went wrong|Could not|> " build.log | grep -v "^> Task" | head -80 | while IFS= read -r line; do
             echo "::error::${line//%/%25}"
           done
 
