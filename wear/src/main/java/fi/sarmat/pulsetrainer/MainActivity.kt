@@ -181,6 +181,7 @@ fun AppRoot() {
         MainActivity.pendingOpen.value = null
         if (o == "stress" && !WorkoutEngine.ui.value.running) push(Scr.Stress)
         if (o == "ecg" && !WorkoutEngine.ui.value.running) push(Scr.Ecg)
+        if (o == "ready" && !WorkoutEngine.ui.value.running) push(Scr.Ready)
     }
 
     val current = stack.last()

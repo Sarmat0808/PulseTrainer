@@ -134,19 +134,44 @@ object Passive {
     }
 
     @Synchronized
+    /**
+     * Sleep without Samsung Health: the watch reports "asleep" / "awake" changes.
+     * A night = from the first "asleep" to the last "awake"; short awakenings (< 45 min) inside it
+     * are counted as wake-ups and their minutes, not as the end of the night.
+     */
     fun onActivity(state: UserActivityState, at: Long, ctx: Context) {
+        val asleepSince = prefs.getLong("asleep", 0L)
+        val nightStart = prefs.getLong("nightStart", 0L)
         if (state == UserActivityState.USER_ACTIVITY_ASLEEP) {
-            if (prefs.getLong("asleep", 0L) == 0L) prefs.edit().putLong("asleep", at).apply()
+            if (asleepSince != 0L) return
+            val awakeAt = prefs.getLong("awakeAt", 0L)
+            if (nightStart != 0L && awakeAt != 0L && at - awakeAt < 45 * 60_000L) {
+                // back to sleep after a short wake-up
+                prefs.edit().putLong("asleep", at).putLong("awakeAt", 0L)
+                    .putInt("wakeups", prefs.getInt("wakeups", 0) + 1)
+                    .putLong("awakeMs", prefs.getLong("awakeMs", 0L) + (at - awakeAt)).apply()
+            } else {
+                prefs.edit().putLong("asleep", at).putLong("nightStart", at).putLong("awakeAt", 0L)
+                    .putInt("wakeups", 0).putLong("awakeMs", 0L).apply()
+            }
             return
         }
-        val since = prefs.getLong("asleep", 0L)
-        if (since == 0L) return
-        prefs.edit().putLong("asleep", 0L).apply()
-        if (at - since < 2 * 3600_000L) return // a nap or a false "asleep"
+        if (asleepSince == 0L) return
+        prefs.edit().putLong("asleep", 0L).putLong("awakeAt", at).apply()
+        val start = if (nightStart != 0L) nightStart else asleepSince
+        if (at - start < 2 * 3600_000L) return // nap or false "asleep"
+        // Save (or extend) tonight; it is final when no new "asleep" follows within 45 minutes.
         val day = dayStart(at)
-        prefs.edit().putLong("night_${day}_s", since).putLong("night_${day}_e", at).apply()
+        prefs.edit().putLong("night_${day}_s", start).putLong("night_${day}_e", at)
+            .putInt("night_${day}_w", prefs.getInt("wakeups", 0))
+            .putLong("night_${day}_a", prefs.getLong("awakeMs", 0L)).apply()
         send(ctx, force = true)
+        HealthTiles.refresh(ctx)
     }
+
+    /** Wake-ups and awake minutes of the night that ended on [day]. */
+    fun nightWake(day: Long): Pair<Int, Int> =
+        prefs.getInt("night_${day}_w", 0) to (prefs.getLong("night_${day}_a", 0L) / 60000).toInt()
 
     private val zone: ZoneId get() = ZoneId.systemDefault()
     private fun dayStart(t: Long): Long = Instant.ofEpochMilli(t).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
@@ -195,6 +220,9 @@ object Passive {
                 hrMax = dayB.maxOfOrNull { it[3] } ?: old?.hrMax,
                 dayAvg = if (dayB.isEmpty()) old?.dayAvg else dayB.sumOf { it[0] } / dayB.sumOf { it[1] }.coerceAtLeast(1),
                 floors = prefs.getFloat("floors_$d", -1f).takeIf { it >= 0 }?.toInt() ?: old?.floors,
+                wakeups = if (s0 != null) nightWake(d).first else old?.wakeups,
+                awakeMin = if (s0 != null) nightWake(d).second else old?.awakeMin,
+                nightMin = night?.let { b.filterKeys { k -> s != null && e != null && k in s..e }.values.minOfOrNull { it[2] } } ?: old?.nightMin,
             )
             if (p.restHr != null || p.steps != null || p.hrMin != null || p.floors != null) days += p
         }

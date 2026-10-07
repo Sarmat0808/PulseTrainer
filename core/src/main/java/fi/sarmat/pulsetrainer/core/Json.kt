@@ -194,6 +194,7 @@ object WorkoutJson {
                 JSONObject().put("day", it.day).putOpt2("rest", it.restHr).putOpt2("night", it.nightAvg)
                     .putOpt2("ss", it.sleepStart).putOpt2("se", it.sleepEnd).putOpt2("steps", it.steps)
                     .putOpt2("min", it.hrMin).putOpt2("max", it.hrMax).putOpt2("avg", it.dayAvg).putOpt2("floors", it.floors)
+                    .putOpt2("wk", it.wakeups).putOpt2("aw", it.awakeMin).putOpt2("nmin", it.nightMin)
             )
         }
         return a.toString()
@@ -207,6 +208,7 @@ object WorkoutJson {
                 PassiveDay(
                     x.getLong("day"), x.intOrNull("rest"), x.intOrNull("night"), x.longOrNull("ss"), x.longOrNull("se"),
                     x.longOrNull("steps"), x.intOrNull("min"), x.intOrNull("max"), x.intOrNull("avg"), x.intOrNull("floors"),
+                    x.intOrNull("wk"), x.intOrNull("aw"), x.intOrNull("nmin"),
                 )
             }
         }

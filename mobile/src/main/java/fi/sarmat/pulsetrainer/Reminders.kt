@@ -28,8 +28,43 @@ object Reminders {
     fun advice(): CoachAdvice = PhoneStore.advise()
 
     /** keep = true on app start (do not disturb an existing schedule); false after settings change. */
+    /** Usual wake-up time (median of the last 7 nights), minutes after midnight; 7:00 if unknown. */
+    fun usualWake(): Int {
+        val z = java.time.ZoneId.systemDefault()
+        val ends = PhoneStore.days.value.takeLast(7).mapNotNull { it.sleepEnd }
+            .map { java.time.Instant.ofEpochMilli(it).atZone(z).let { t -> t.hour * 60 + t.minute } }.sorted()
+        return if (ends.size >= 3) ends[ends.size / 2] else 7 * 60
+    }
+
+    /**
+     * Recommended bedtime: usual wake-up minus 8 h of sleep (+15 min to fall asleep);
+     * after a short night (< 6.5 h) — 30 minutes earlier to pay back the debt.
+     */
+    fun bedtime(): Int {
+        val last = PhoneStore.days.value.lastOrNull { it.sleepMin != null }?.sleepMin
+        var m = usualWake() - 8 * 60 - 15
+        if (last != null && last < 390) m -= 30
+        return ((m % 1440) + 1440) % 1440
+    }
+
+    fun hm(min: Int) = "%02d:%02d".format(min / 60, min % 60)
+
+    /** The evening report comes 45 minutes before bedtime (re-planned every day). */
+    fun scheduleBedtime(ctx: Context) {
+        val wm = WorkManager.getInstance(ctx)
+        if (!PhoneStore.remindBedtime) { wm.cancelUniqueWork("bedtime"); return }
+        val now = ZonedDateTime.now()
+        val at = (bedtime() - 45 + 1440) % 1440
+        var next = now.withHour(at / 60).withMinute(at % 60).withSecond(0).withNano(0)
+        if (!next.isAfter(now.plusMinutes(1))) next = next.plusDays(1)
+        val req = androidx.work.OneTimeWorkRequestBuilder<BedtimeWorker>()
+            .setInitialDelay(Duration.between(now, next).toMillis(), TimeUnit.MILLISECONDS).build()
+        wm.enqueueUniqueWork("bedtime", androidx.work.ExistingWorkPolicy.REPLACE, req)
+    }
+
     fun schedule(ctx: Context, keep: Boolean) {
         val wm = WorkManager.getInstance(ctx)
+        scheduleBedtime(ctx)
         // Hourly check: "now is a good time for the protein drink / bar".
         wm.enqueueUniquePeriodicWork(
             "snack-tip", ExistingPeriodicWorkPolicy.KEEP,
@@ -79,9 +114,21 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val a = Reminders.advice()
         val kind = inputData.getString("kind")
         if (Reminders.isMorning(kind)) {
-            val lines = listOf("Готовность ${a.score}/100 · ${Coach.levelText(a)}") + a.plan.take(3) + a.whenText +
-                (if (PhoneStore.todayCheckIn() == null) listOf("Откройте приложение и отметьте самочувствие — оценка станет точнее.") else emptyList())
-            Reminders.notify(ctx, 101, "Тренер: ${a.headline}", lines)
+            // Morning report: how you slept, what it means, what to do today.
+            val night = PhoneStore.days.value.lastOrNull { it.sleepMin != null }
+            val sc = fi.sarmat.pulsetrainer.core.Health.sleepScore(night)
+            val en = try { PhoneStore.energy() } catch (_: Exception) { null }
+            val rec = try { PhoneStore.recovery() } catch (_: Exception) { null }
+            val sleepLine = night?.sleepMin?.let { m ->
+                "Сон ${m / 60} ч ${m % 60} мин" + (sc?.let { " · оценка ${it.value} (${it.label.lowercase()})" } ?: "") +
+                    (night.deepMin?.let { " · глубокий $it мин" } ?: "") + (night.restHr?.let { " · пульс ночью $it" } ?: "")
+            } ?: "Сон: нет данных — спите с часами"
+            val lines = listOf(sleepLine,
+                "Готовность ${a.score}/100 · ${Coach.levelText(a)}" + (en?.let { " · энергия ${it.now}" } ?: ""),
+                rec?.takeIf { it.hoursLeft > 0 }?.let { "Восстановление: ещё ${it.hoursLeft} ч" } ?: "Восстановлен — можно тренироваться") +
+                a.plan.take(2) + a.whenText +
+                (if (PhoneStore.todayCheckIn() == null) listOf("Отметьте самочувствие в приложении — оценка станет точнее.") else emptyList())
+            Reminders.notify(ctx, 101, "Доброе утро · ${a.headline}", lines)
         } else {
             val dayStart = ZonedDateTime.now().toLocalDate().atStartOfDay(ZonedDateTime.now().zone).toInstant().toEpochMilli()
             val trained = PhoneStore.workouts.value.any { it.start >= dayStart }
@@ -119,6 +166,34 @@ class SnackWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         ) ?: return Result.success()
         prefs.edit().putLong("last", now).apply()
         Reminders.notify(ctx, 104, tip.title, listOf(tip.why, "Откройте «Еда» → «Выпил / съел — добавить»."))
+        return Result.success()
+    }
+}
+
+
+/**
+ * Evening report 45 min before the recommended bedtime: when to go to sleep, how the day went,
+ * what helps tonight's sleep. Re-schedules itself for the next day.
+ */
+class BedtimeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        val ctx = applicationContext
+        try { PhoneStore.refreshDays(ctx) } catch (_: Exception) {}
+        val bed = Reminders.bedtime()
+        val today = PhoneStore.days.value.lastOrNull()
+        val day0 = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val trained = PhoneStore.workouts.value.filter { it.start >= day0 && fi.sarmat.pulsetrainer.core.Physiology.isRealWorkout(it) }
+        val en = try { PhoneStore.energy() } catch (_: Exception) { null }
+        val food = fi.sarmat.pulsetrainer.core.DayTotals.of(FoodStore.entries(java.time.LocalDate.now()))
+        val target = FoodStore.targets(java.time.LocalDate.now())
+        val lines = ArrayList<String>()
+        lines += "Лечь в ${Reminders.hm(bed)}, подъём ~${Reminders.hm(Reminders.usualWake())} → 8 ч сна"
+        lines += "День: ${today?.steps ?: 0} шагов" + (if (trained.isNotEmpty()) " · тренировка ${trained.sumOf { it.activeSec } / 60} мин" else " · без тренировки") +
+            (en?.let { " · энергия ${it.now}" } ?: "")
+        if (food.p < target.p - 20) lines += "Белка не хватает ${(target.p - food.p).toInt()} г — лёгкий белковый перекус (творог, кефир)"
+        lines += "Без кофеина и тяжёлой еды до сна, экран — потише, в комнате прохладно"
+        Reminders.notify(ctx, 105, "Скоро спать — в ${Reminders.hm(bed)}", lines)
+        Reminders.scheduleBedtime(ctx)
         return Result.success()
     }
 }

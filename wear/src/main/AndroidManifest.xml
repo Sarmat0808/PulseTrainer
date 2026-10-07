@@ -87,6 +87,42 @@
         </service>
 
         <service
+            android:name=".TodayTileService"
+            android:exported="true"
+            android:label="PulseTrainer: сегодня"
+            android:icon="@drawable/sport_sports"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+            <meta-data android:name="androidx.wear.tiles.PREVIEW" android:resource="@drawable/sport_sports" />
+        </service>
+
+        <service
+            android:name=".SleepTileService"
+            android:exported="true"
+            android:label="PulseTrainer: сон"
+            android:icon="@drawable/sport_self_improvement"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+            <meta-data android:name="androidx.wear.tiles.PREVIEW" android:resource="@drawable/sport_self_improvement" />
+        </service>
+
+        <service
+            android:name=".StressTileService"
+            android:exported="true"
+            android:label="PulseTrainer: стресс"
+            android:icon="@drawable/sport_timer"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+            <meta-data android:name="androidx.wear.tiles.PREVIEW" android:resource="@drawable/sport_timer" />
+        </service>
+
+        <service
             android:name=".PassiveDataService"
             android:exported="true"
             android:permission="com.google.android.wearable.healthservices.permission.PASSIVE_DATA_BINDING" />

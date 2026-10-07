@@ -240,26 +240,33 @@ object Storage {
     fun addStress(r: StressRecord) {
         val list = (stressHistory() + r).sortedBy { it.time }.takeLast(60)
         prefs.edit().putString("stress", WorkoutJson.stressToJson(list)).commit()
+        HealthTiles.refresh(appCtx)
         PhoneLink.sendProfile(appCtx)
     }
 
     // ---------- Readiness and plan from the phone's coach ----------
 
     data class CoachInfo(val score: Int, val level: Int, val label: String, val headline: String, val plan: List<String>, val time: Long,
-                         val energy: Int = -1, val energyLabel: String = "", val recH: Int = -1)
+                         val energy: Int = -1, val energyLabel: String = "", val recH: Int = -1,
+                         val sleepMin: Int = -1, val sleepScore: Int = -1, val sleepLabel: String = "",
+                         val sleepStart: Long = 0, val sleepEnd: Long = 0, val deep: Int = -1, val rem: Int = -1, val awake: Int = -1,
+                         val rest: Int = -1, val steps: Long = -1)
 
     val coach = MutableStateFlow<CoachInfo?>(null)
 
     fun saveCoach(json: String) {
         prefs.edit().putString("coach", json).apply()
         coach.value = parseCoach(json)
+        HealthTiles.refresh(appCtx)
     }
 
     private fun parseCoach(json: String?): CoachInfo? = try {
         val o = org.json.JSONObject(json ?: "")
         val a = o.optJSONArray("plan")
         CoachInfo(o.getInt("score"), o.getInt("level"), o.optString("label"), o.optString("headline"),
-            (0 until (a?.length() ?: 0)).map { a!!.getString(it) }, o.optLong("t"), o.optInt("energy", -1), o.optString("energyLabel"), o.optInt("recH", -1))
+            (0 until (a?.length() ?: 0)).map { a!!.getString(it) }, o.optLong("t"), o.optInt("energy", -1), o.optString("energyLabel"), o.optInt("recH", -1),
+            o.optInt("sleepMin", -1), o.optInt("sleepScore", -1), o.optString("sleepLabel"), o.optLong("sleepStart"), o.optLong("sleepEnd"),
+            o.optInt("deep", -1), o.optInt("rem", -1), o.optInt("awake", -1), o.optInt("rest", -1), o.optLong("steps", -1))
     } catch (_: Exception) { null }
 
     /**

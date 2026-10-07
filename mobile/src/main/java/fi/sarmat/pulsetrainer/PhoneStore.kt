@@ -195,6 +195,9 @@ object PhoneStore {
     var remindMorning: Boolean
         get() = prefs.getBoolean("remindOn", true)
         set(v) { prefs.edit().putBoolean("remindOn", v).apply() }
+    var remindBedtime: Boolean
+        get() = prefs.getBoolean("bedtimeOn", true)
+        set(v) { prefs.edit().putBoolean("bedtimeOn", v).apply() }
     var remindEvening: Boolean
         get() = prefs.getBoolean("eveningOn", true)
         set(v) { prefs.edit().putBoolean("eveningOn", v).apply() }
@@ -229,6 +232,15 @@ object PhoneStore {
             val json = JSONObject().put("score", a.score).put("level", a.level).put("label", Coach.levelText(a))
                 .put("energy", en?.now ?: -1).put("energyLabel", en?.label ?: "")
                 .put("recH", try { recovery().hoursLeft } catch (_: Exception) { -1 })
+                .also { o ->
+                    val night = days.value.lastOrNull { it.sleepMin != null }
+                    val sc = fi.sarmat.pulsetrainer.core.Health.sleepScore(night)
+                    o.put("sleepMin", night?.sleepMin ?: -1).put("sleepScore", sc?.value ?: -1).put("sleepLabel", sc?.label ?: "")
+                    o.put("sleepStart", night?.sleepStart ?: 0L).put("sleepEnd", night?.sleepEnd ?: 0L)
+                    o.put("deep", night?.deepMin ?: -1).put("rem", night?.remMin ?: -1).put("awake", night?.awakeMin ?: -1)
+                    o.put("rest", night?.restHr ?: days.value.lastOrNull()?.restHr ?: -1)
+                    o.put("steps", days.value.lastOrNull()?.steps ?: -1L)
+                }
                 .put("headline", a.headline).put("plan", JSONArray(a.plan.take(3))).put("t", System.currentTimeMillis()).toString()
             val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
             nodes.forEach { Wearable.getMessageClient(ctx).sendMessage(it.id, Protocol.PATH_COACH, json.toByteArray()).await() }
@@ -331,7 +343,8 @@ object PhoneStore {
 
     suspend fun refreshDays(ctx: Context) {
         val snap = try { HealthData.load(ctx, profile.value ?: fi.sarmat.pulsetrainer.core.Profile()) } catch (_: Exception) { null }
-        if (snap != null && snap.days.isNotEmpty()) days.value = mergeWatch(snap.days)
+        if (snap != null && snap.days.isNotEmpty()) rawDays = snap.days
+        days.value = mergeWatch(rawDays)
         if (snap != null) { ext.value = snap.ext; if (snap.hrRecent.isNotEmpty()) hrRecent.value = snap.hrRecent }
         // Every weight from Samsung Health scales / manual entries joins the log (one per day).
         val fromHc = (snap?.days ?: emptyList()).filter { it.weightKg != null }.map { WeightEntry(it.day + 8 * 3600_000L, it.weightKg!!) }
@@ -357,13 +370,22 @@ object PhoneStore {
      */
     fun mergeWatch(list: List<DailyStats>): List<DailyStats> {
         val pd = passive.value.associateBy { it.day }
+        val own = watchOnly
+        fun sleepOf(p: PassiveDay): Int? = if (p.sleepStart != null && p.sleepEnd != null && p.sleepEnd > p.sleepStart)
+            (((p.sleepEnd - p.sleepStart) / 60000).toInt() - (p.awakeMin ?: 0)).coerceAtLeast(0) else null
         val merged = list.map { d ->
-            val p = pd[d.day] ?: return@map d
-            val sl = if (d.sleepMin == null && p.sleepStart != null && p.sleepEnd != null && p.sleepEnd > p.sleepStart)
-                ((p.sleepEnd - p.sleepStart) / 60000).toInt() else null
-            d.copy(
-                sleepMin = d.sleepMin ?: sl,
+            val p = pd[d.day] ?: return@map if (own) d.copy(sleepMin = null, deepMin = null, remMin = null, lightMin = null, awakeMin = null) else d
+            if (own) d.copy(
+                // «Только PulseTrainer»: sleep and resting pulse from the watch's own tracking.
+                sleepMin = sleepOf(p), sleepStart = p.sleepStart, sleepEnd = p.sleepEnd,
+                deepMin = null, remMin = null, lightMin = null, awakeMin = p.awakeMin,
+                restHr = p.restHr ?: d.restHr, steps = p.steps ?: d.steps,
+                hrMin = p.hrMin ?: d.hrMin, hrMax = p.hrMax ?: d.hrMax, hrAvg = p.dayAvg ?: d.hrAvg,
+                floors = p.floors?.toDouble() ?: d.floors,
+            ) else d.copy(
+                sleepMin = d.sleepMin ?: sleepOf(p),
                 sleepStart = d.sleepStart ?: p.sleepStart, sleepEnd = d.sleepEnd ?: p.sleepEnd,
+                awakeMin = d.awakeMin ?: p.awakeMin.takeIf { d.sleepMin == null },
                 restHr = d.restHr ?: p.restHr, steps = d.steps ?: p.steps,
                 hrMin = d.hrMin ?: p.hrMin, hrMax = d.hrMax ?: p.hrMax, hrAvg = d.hrAvg ?: p.dayAvg,
                 floors = d.floors ?: p.floors?.toDouble(),
@@ -371,11 +393,22 @@ object PhoneStore {
         }
         val known = merged.map { it.day }.toSet()
         val extra = pd.values.filter { it.day !in known }.map { p ->
-            DailyStats(p.day, sleepMin = if (p.sleepStart != null && p.sleepEnd != null) ((p.sleepEnd - p.sleepStart) / 60000).toInt() else null,
+            DailyStats(p.day, sleepMin = sleepOf(p), awakeMin = p.awakeMin,
                 restHr = p.restHr, steps = p.steps, sleepStart = p.sleepStart, sleepEnd = p.sleepEnd, floors = p.floors?.toDouble())
         }
         return (merged + extra).sortedBy { it.day }
     }
+
+    /**
+     * Data source: false = Samsung Health first (stages, SpO2…), the watch fills gaps;
+     * true = only PulseTrainer's own watch tracking (works with Samsung Health removed or switched off).
+     */
+    var watchOnly: Boolean
+        get() = prefs.getBoolean("watchOnly", false)
+        set(v) { prefs.edit().putBoolean("watchOnly", v).apply(); days.value = mergeWatch(rawDays); }
+
+    /** Days as read from Health Connect, before merging with the watch. */
+    private var rawDays: List<DailyStats> = emptyList()
 
     private fun saveWeights() {
         val a = JSONArray()
@@ -439,7 +472,7 @@ object PhoneStore {
         val now = System.currentTimeMillis()
         lastPassive.value = now
         prefs.edit().putString("passive", WorkoutJson.passiveToJson(merged)).putLong("lastPassive", now).apply()
-        if (days.value.isNotEmpty()) days.value = mergeWatch(days.value)
+        days.value = mergeWatch(rawDays)
     }
 
     // ---------- Import from the watch ----------

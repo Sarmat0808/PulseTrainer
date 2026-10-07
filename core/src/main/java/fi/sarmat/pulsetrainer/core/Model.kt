@@ -247,6 +247,10 @@ data class PassiveDay(
     val dayAvg: Int? = null,
     /** Floors climbed today (watch barometer, ~3 m each). */
     val floors: Int? = null,
+    /** Night: wake-ups, awake minutes, lowest pulse (PulseTrainer's own sleep tracking). */
+    val wakeups: Int? = null,
+    val awakeMin: Int? = null,
+    val nightMin: Int? = null,
 )
 
 /** Morning readiness test. */

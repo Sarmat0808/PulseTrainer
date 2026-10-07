@@ -474,20 +474,35 @@ private fun RemindersCard() {
     val ctx = LocalContext.current
     var morning by remember { mutableStateOf(PhoneStore.remindMorning) }
     var evening by remember { mutableStateOf(PhoneStore.remindEvening) }
+    var bedtime by remember { mutableStateOf(PhoneStore.remindBedtime) }
     var hour by remember { mutableStateOf(PhoneStore.remindMorningHour) }
+    var watchOnly by remember { mutableStateOf(PhoneStore.watchOnly) }
     fun apply() {
         PhoneStore.remindMorning = morning; PhoneStore.remindEvening = evening; PhoneStore.remindMorningHour = hour
+        PhoneStore.remindBedtime = bedtime
         Reminders.schedule(ctx, keep = false)
     }
     Section {
-        Text("Напоминания тренера", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Toggle("Утром: план на день (силовая, кардио, прогулка или отдых)", morning) { morning = it; apply() }
-        if (morning) Stepper("Время утреннего совета", "%02d:00".format(hour), 1.0) { d -> hour = (hour + d.toInt() + 24) % 24; apply() }
+        Text("Отчёты и напоминания", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Toggle("Утренний отчёт: как спал, готовность, энергия, план дня", morning) { morning = it; apply() }
+        if (morning) Stepper("Время утреннего отчёта", "%02d:00".format(hour), 1.0) { d -> hour = (hour + d.toInt() + 24) % 24; apply() }
+        Toggle("Вечерний отчёт: во сколько лечь спать и итоги дня (за 45 мин до сна)", bedtime) { bedtime = it; apply() }
+        if (bedtime) Text("Рекомендуемое время сна сегодня: ${Reminders.hm(Reminders.bedtime())} (подъём ~${Reminders.hm(Reminders.usualWake())})",
+            color = Good, fontSize = 15.sp)
         Toggle("Вечером (${Reminders.EVENING_HOUR}:00): напомнить, если тренировки ещё не было", evening) { evening = it; apply() }
         OutlinedButton(onClick = {
             val a = Reminders.advice()
             Reminders.notify(ctx, 101, "Тренер: ${a.headline}", listOf("Готовность ${a.score}/100") + a.plan.take(3) + a.whenText)
         }) { Text("Показать совет сейчас") }
+    }
+    Section {
+        Text("Источник данных сна и пульса", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Toggle("Только PulseTrainer (без Samsung Health)", watchOnly) { watchOnly = it; PhoneStore.watchOnly = it }
+        Text(if (watchOnly)
+            "Сон, пульс покоя, шаги и пульс за день — с часов через PulseTrainer (фоновый сбор должен быть включён на часах). Фаз сна, SpO₂, давления и состава тела без Samsung Health нет."
+        else
+            "Сначала данные Samsung Health (фазы сна, SpO₂, вес с весов), пропуски дополняются часами PulseTrainer.",
+            color = Dim, fontSize = 14.sp)
     }
 }
 
