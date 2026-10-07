@@ -183,6 +183,8 @@ class ExerciseHr(private val ctx: Context, private val onLocation: (android.loca
     @Volatile var lastLocationAt = 0L; private set
     private var active = false
     private var gpsOn = false
+    /** false after stop(): a late async start must end itself instead of running on. */
+    @Volatile private var wanted = false
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     private val callback = object : androidx.health.services.client.ExerciseUpdateCallback {
@@ -215,6 +217,7 @@ class ExerciseHr(private val ctx: Context, private val onLocation: (android.loca
     /** Start (or upgrade to GPS) for this exercise. */
     fun ensure(type: fi.sarmat.pulsetrainer.core.WorkoutType) {
         val c = client ?: return
+        wanted = true
         val wantGps = type.gps || gpsOn
         if (active && (gpsOn || !wantGps)) return
         val start = {
@@ -222,6 +225,7 @@ class ExerciseHr(private val ctx: Context, private val onLocation: (android.loca
                 val et = exType(type)
                 val caps = c.getCapabilitiesAsync()
                 caps.addListener({
+                    if (!wanted) return@addListener
                     try {
                         val supported = try { caps.get().getExerciseTypeCapabilities(et).supportedDataTypes } catch (_: Throwable) { emptySet() }
                         val gps = wantGps && DataType.LOCATION in supported && hasLocationPermission()
@@ -236,6 +240,7 @@ class ExerciseHr(private val ctx: Context, private val onLocation: (android.loca
                             )
                         )
                         active = true; gpsOn = gps
+                        if (!wanted) stop()
                     } catch (_: Throwable) {}
                 }, ContextCompat_mainExecutor(ctx))
             } catch (_: Throwable) {}
@@ -244,7 +249,7 @@ class ExerciseHr(private val ctx: Context, private val onLocation: (android.loca
             // Restart with GPS.
             try {
                 val f = c.endExerciseAsync()
-                f.addListener({ active = false; start() }, ContextCompat_mainExecutor(ctx))
+                f.addListener({ active = false; if (wanted) start() }, ContextCompat_mainExecutor(ctx))
             } catch (_: Throwable) { start() }
         } else start()
     }
@@ -254,8 +259,9 @@ class ExerciseHr(private val ctx: Context, private val onLocation: (android.loca
     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     fun stop() {
+        wanted = false
         val c = client ?: return
-        if (!active) return
+        // Always end: a start may still be in flight even if it hasn't reported "active" yet.
         try { c.endExerciseAsync() } catch (_: Throwable) {}
         try { c.clearUpdateCallbackAsync(callback) } catch (_: Throwable) {}
         active = false; gpsOn = false

@@ -117,7 +117,7 @@ fun WorkoutsScreen(
             Text("Пока пусто. Завершите тренировку на часах — она появится здесь автоматически.", color = Dim, fontSize = 16.sp)
         }
         var lastMonth = ""
-        rows.forEach { r ->
+        rows.forEachIndexed { idx, r ->
             val m = monthFmt.format(Date(r.start)).replaceFirstChar { it.uppercase() }
             if (m != lastMonth) {
                 lastMonth = m
@@ -130,7 +130,7 @@ fun WorkoutsScreen(
             }
             when (r) {
                 is HistRow.Own -> item(key = r.w.id) { OwnRow(r.w, reviews[r.w.id]) { open(r.w.id) } }
-                is HistRow.Ext -> item(key = "e${r.e.start}") { ExtRow(r.e) }
+                is HistRow.Ext -> item(key = "e${r.e.start}_$idx") { ExtRow(r.e) }
             }
         }
         item(key = "more") { MoreBlock(layout.more.size, "Подробнее: Samsung Health, отчёт для ИИ") { layout.more.forEach { card(it) } } }

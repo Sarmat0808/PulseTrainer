@@ -66,6 +66,7 @@ private val hmFmt = SimpleDateFormat("HH:mm", Locale("ru"))
 private val NUTRITION_CARDS = linkedMapOf(
     "status" to "Статус дня (норма набрана / осталось)",
     "actions" to "Кнопки: + Еда / Забыл внести",
+    "meals" to "Журнал: завтрак, обед, ужин, перекусы",
     "my" to "Мои блюда (быстрое добавление)",
     "macros" to "Белки, жиры, углеводы, жидкость",
     "drinks" to "Напитки и перекусы — одно нажатие",
@@ -172,6 +173,7 @@ fun NutritionScreen() {
                         }
                     }
                     "my" -> MyFoodsCard(date)
+                    "meals" -> MealsCard(date, foods, entries, target)
                     "drinks" -> Section {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Напитки — одно нажатие", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -376,7 +378,8 @@ private fun TableRow(a: String, b: String, c: String, d: String, e: String, f: S
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, pickOnly: Boolean = false, onAdd: (Food, Double) -> Unit) {
+private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, pickOnly: Boolean = false, title: String? = null,
+                          extra: (@Composable () -> Unit)? = null, onAdd: (Food, Double) -> Unit) {
     var query by remember { mutableStateOf("") }
     var cat by remember { mutableStateOf<String?>(null) }
     var chosen by remember { mutableStateOf<Food?>(null) }
@@ -390,7 +393,7 @@ private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, pickOnly: Bo
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(chosen?.name ?: if (pickOnly) "Выберите продукт" else "Добавить еду") },
+        title = { Text(chosen?.name ?: title ?: if (pickOnly) "Выберите продукт" else "Добавить еду") },
         text = {
             val f = chosen
             if (f == null) {
@@ -441,6 +444,7 @@ private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, pickOnly: Bo
                         }
                     }
                     Text("Б ${n(e.p)} г · Ж ${n(e.f)} г · У ${n(e.c)} г · ${n(e.kcal)} ккал", color = Good, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    extra?.invoke()
                     if (f.id !in FoodStore.myIds()) TextButton(onClick = { FoodStore.setMy(FoodStore.myIds() + f.id) }) { Text("☆ В «Мои блюда»") }
                     TextButton(onClick = { chosen = null }) { Text("← Другой продукт") }
                 }
@@ -698,4 +702,144 @@ private fun SnackTipCard(date: LocalDate, foods: List<Food>, entries: List<FoodE
             Toast.makeText(ctx, "Добавлено: ${tip.food.name}", Toast.LENGTH_SHORT).show()
         }, modifier = Modifier.fillMaxWidth()) { Text("Выпил / съел — добавить", fontSize = 16.sp) }
     }
+}
+
+
+// ======================= Meals journal (like Samsung Health) =======================
+
+private fun pickTime(ctx: android.content.Context, minute: Int, onPick: (Int) -> Unit) {
+    try {
+        android.app.TimePickerDialog(ctx, { _, h, m -> onPick(h * 60 + m) }, minute / 60, minute % 60, true).show()
+    } catch (_: Exception) {}
+}
+
+private fun hm(min: Int) = "%02d:%02d".format(min / 60, min % 60)
+
+/**
+ * Breakfast, lunch, dinner and snacks — each with its real time. Forgot to log? Tap «+» at the meal
+ * any time later and set when you ate: the time is used for protein after a workout,
+ * protein spread over the day and late eating before sleep.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MealsCard(date: LocalDate, foods: List<Food>, entries: List<FoodEntry>, target: fi.sarmat.pulsetrainer.core.Targets) {
+    val ctx = LocalContext.current
+    var addMeal by remember { mutableStateOf<Int?>(null) }
+    var addTime by remember { mutableStateOf<Long?>(null) }
+    var edit by remember { mutableStateOf<FoodEntry?>(null) }
+    val byMeal = entries.groupBy { FoodStore.mealOf(it) }
+    val workouts by PhoneStore.workouts.collectAsState()
+    val isToday = date == LocalDate.now()
+    val notes = remember(entries, workouts, date) {
+        val zone = java.time.ZoneId.systemDefault()
+        val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val ends = workouts.filter { it.end in from until from + 86400_000L && it.activeSec >= 600 }.map { it.end }
+        fi.sarmat.pulsetrainer.core.Meals.timing(entries, target, Reminders.bedtime(), FoodStore::minuteOf, ends, isToday,
+            FoodStore.minuteOf(System.currentTimeMillis()))
+    }
+    Section {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Журнал питания", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("${n(entries.sumOf { it.kcal })} ккал", color = Dim, fontSize = 15.sp)
+        }
+        fi.sarmat.pulsetrainer.core.Meals.ORDER.forEach { m ->
+            val list = byMeal[m].orEmpty().sortedBy { it.time }
+            val kcal = list.sumOf { it.kcal }
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.width(54.dp).height(54.dp).clip(RoundedCornerShape(27.dp))
+                        .background(if (list.isEmpty()) Color(0xFF2A2F36) else Color(0xFF1F3A2A)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(n(kcal), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("ккал", color = Dim, fontSize = 11.sp)
+                    }
+                }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(fi.sarmat.pulsetrainer.core.Meals.NAMES[m], color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        if (list.isNotEmpty()) {
+                            val t = FoodStore.minuteOf(list.first().time)
+                            Text("  🕒 ${hm(t)}", color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.clickable { pickTime(ctx, t) { FoodStore.setMealTime(date, m, it) } }.padding(4.dp))
+                        }
+                    }
+                    list.forEach { e ->
+                        Text("${e.name} · ${amountText(e)} · ${n(e.kcal)} ккал", color = Dim, fontSize = 14.sp, maxLines = 1,
+                            modifier = Modifier.fillMaxWidth().clickable { edit = e }.padding(vertical = 2.dp))
+                    }
+                }
+                Text("+", color = Accent, fontSize = 30.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable { addTime = null; addMeal = m }.padding(horizontal = 14.dp, vertical = 4.dp))
+            }
+        }
+        if (notes.isNotEmpty()) {
+            Text("Время еды и статистика", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+            notes.forEach { Text((if (it.good) "✓ " else "• ") + it.text, color = if (it.good) Good else Color.White, fontSize = 15.sp) }
+        }
+        Text("Забыли внести? Нажмите «+» у нужного приёма и поставьте время, когда ели (🕒). Время учитывается: белок после тренировки, " +
+            "распределение белка за день, поздний ужин перед сном.", color = Dim, fontSize = 14.sp)
+    }
+    addMeal?.let { m ->
+        val defT = remember(m, date, entries) { FoodStore.mealTime(date, m) }
+        val t = addTime ?: defT
+        AddFoodDialog(foods, onDismiss = { addMeal = null }, title = fi.sarmat.pulsetrainer.core.Meals.NAMES[m] + " · " + hm(FoodStore.minuteOf(t)),
+            extra = {
+                OutlinedButton(onClick = {
+                    pickTime(ctx, FoodStore.minuteOf(t)) { min ->
+                        addTime = date.atTime(min / 60, min % 60).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    }
+                }, modifier = Modifier.fillMaxWidth()) { Text("🕒 Когда ели: ${hm(FoodStore.minuteOf(t))}", fontSize = 16.sp) }
+            }) { f, amount ->
+            FoodStore.add(date, f, amount, meal = m, time = t)
+            addMeal = null
+            Toast.makeText(ctx, "${fi.sarmat.pulsetrainer.core.Meals.NAMES[m]}: ${f.name}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    edit?.let { e -> EntryEditDialog(date, e) { edit = null } }
+}
+
+/** Change amount, meal or time of an entry — or delete it. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EntryEditDialog(date: LocalDate, e: FoodEntry, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    var amount by remember { mutableStateOf(e.amount.roundToInt().toString()) }
+    var meal by remember { mutableStateOf(FoodStore.mealOf(e)) }
+    var minute by remember { mutableStateOf(FoodStore.minuteOf(e.time)) }
+    val a = amount.replace(',', '.').toDoubleOrNull() ?: 0.0
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(e.name) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = amount, onValueChange = { v -> amount = v.filter { it.isDigit() || it == '.' || it == ',' }.take(6) },
+                    label = { Text(if (e.drinkMl > 0) "Количество, мл" else "Вес, г") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth()
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    fi.sarmat.pulsetrainer.core.Meals.ORDER.forEach { m ->
+                        FilterChip(selected = meal == m, onClick = { meal = m },
+                            label = { Text(fi.sarmat.pulsetrainer.core.Meals.NAMES[m], fontSize = 13.sp) })
+                    }
+                }
+                OutlinedButton(onClick = { pickTime(ctx, minute) { minute = it } }, modifier = Modifier.fillMaxWidth()) {
+                    Text("🕒 Когда ели: ${hm(minute)}", fontSize = 16.sp)
+                }
+                TextButton(onClick = { FoodStore.remove(date, e); onClose() }) { Text("Удалить", color = Danger) }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val k = if (e.amount > 0) a / e.amount else 1.0
+                val t = date.atTime(minute / 60, minute % 60).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                FoodStore.update(date, e, e.copy(time = t, meal = meal, amount = a, p = e.p * k, f = e.f * k, c = e.c * k,
+                    drinkMl = if (e.drinkMl > 0) a.roundToInt() else 0))
+                onClose()
+            }, enabled = a > 0) { Text("Сохранить") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("Отмена") } },
+    )
 }

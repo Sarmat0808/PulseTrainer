@@ -199,6 +199,7 @@ object WorkoutEngine {
     private var kmAlertOn = true
     private var autoPaused = false
     private val moveWin = ArrayDeque<Pair<Long, Location>>()
+    private var lastFixNs = 0L
     private var slowSec = 0
     private var lastLapSec: Int? = null
     private var ascent = 0.0
@@ -394,8 +395,13 @@ object WorkoutEngine {
     fun onLocation(loc: Location) {
         if (!running || paused || !type.gps) return
         if (loc.hasAccuracy() && loc.accuracy > 40f) { gpsFix = false; return }
+        // Health Services may deliver fixes in batches: use each fix's own time and skip out-of-order ones.
+        val ns = loc.elapsedRealtimeNanos
+        if (ns != 0L && ns <= lastFixNs) return
+        if (ns != 0L) lastFixNs = ns
         gpsFix = true
-        val now = System.currentTimeMillis()
+        val wall = System.currentTimeMillis()
+        val now = if (loc.time in (wall - 120_000)..wall) loc.time else wall
         moveWin.addLast(now to loc)
         while (moveWin.isNotEmpty() && now - moveWin.first().first > 12_000) moveWin.removeFirst()
         if (autoPaused) { lastLoc = null; return }
@@ -462,6 +468,7 @@ object WorkoutEngine {
         } else { prepping = false; roundLeft = 0 }
         segDist = 0.0
         lastLoc = null
+        lastFixNs = 0L
         gpsFix = false
         lapStartT = now; lapStartDist = 0.0
         paceWin.clear()
@@ -540,7 +547,6 @@ object WorkoutEngine {
         peakS = 0.0
         reps = 0
         advice = null
-        hooks?.resetReps()
     }
 
     /**
@@ -665,6 +671,8 @@ object WorkoutEngine {
 
     private fun checkAutoPause() {
         if (moveWin.size < 2) return
+        // No fresh fixes (GPS lost, or a batch is late): don't decide anything on old data.
+        if (System.currentTimeMillis() - moveWin.last().first > 15_000) return
         val (t0, a) = moveWin.first(); val (t1, b) = moveWin.last()
         val dt = (t1 - t0) / 1000.0
         if (dt < 5) return

@@ -95,7 +95,11 @@ object HealthData {
      * Everything for the coach: daily stats (up to [days] back — 90 with the history permission)
      * and workouts recorded by other apps with load computed from their real heart rate.
      */
-    suspend fun load(ctx: Context, profile: Profile, days: Int = 90): Snapshot {
+    /** Off the main thread: 90 days of records and the per-workout heart-rate maths are heavy. */
+    suspend fun load(ctx: Context, profile: Profile, days: Int = 90): Snapshot =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { loadImpl(ctx, profile, days) }
+
+    private suspend fun loadImpl(ctx: Context, profile: Profile, days: Int): Snapshot {
         if (!HealthSync.available(ctx)) return Snapshot(emptyList(), emptyList())
         val c = HealthConnectClient.getOrCreate(ctx)
         val granted = try { c.permissionController.getGrantedPermissions() } catch (_: Exception) { return Snapshot(emptyList(), emptyList()) }

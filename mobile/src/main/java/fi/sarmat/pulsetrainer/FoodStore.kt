@@ -6,6 +6,7 @@ import fi.sarmat.pulsetrainer.core.DayTotals
 import fi.sarmat.pulsetrainer.core.Food
 import fi.sarmat.pulsetrainer.core.FoodEntry
 import fi.sarmat.pulsetrainer.core.Nutrition
+import fi.sarmat.pulsetrainer.core.Meals
 import fi.sarmat.pulsetrainer.core.Profile
 import fi.sarmat.pulsetrainer.core.Targets
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,7 +38,7 @@ object FoodStore {
         (0 until a.length()).map {
             val o = a.getJSONObject(it)
             FoodEntry(o.getLong("t"), o.getString("id"), o.getString("n"), o.getDouble("a"),
-                o.getDouble("p"), o.getDouble("f"), o.getDouble("c"), o.optInt("ml"))
+                o.getDouble("p"), o.getDouble("f"), o.getDouble("c"), o.optInt("ml"), o.optInt("m", -1))
         }
     } catch (_: Exception) { emptyList() }
 
@@ -45,20 +46,54 @@ object FoodStore {
         val a = JSONArray()
         list.sortedBy { it.time }.forEach {
             a.put(JSONObject().put("t", it.time).put("id", it.foodId).put("n", it.name).put("a", it.amount)
-                .put("p", it.p).put("f", it.f).put("c", it.c).put("ml", it.drinkMl))
+                .put("p", it.p).put("f", it.f).put("c", it.c).put("ml", it.drinkMl).put("m", it.meal))
         }
         prefs.edit().putString(key(d), a.toString()).apply()
         version.value++
     }
 
-    fun add(d: LocalDate, food: Food, amount: Double) {
+    fun add(d: LocalDate, food: Food, amount: Double, meal: Int = -1, time: Long? = null) {
         val now = LocalDate.now()
-        val time = if (d == now) System.currentTimeMillis()
+        val t = time ?: if (meal >= 0) mealTime(d, meal)
+        else if (d == now) System.currentTimeMillis()
         else d.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        saveDay(d, entries(d) + Nutrition.entry(food, amount, time))
+        saveDay(d, entries(d) + Nutrition.entry(food, amount, t).copy(meal = meal))
         setForgot(d, false)
         touchRecent(food.id)
         prefs.edit().putFloat("amt_${food.id}", amount.toFloat()).apply()
+    }
+
+    // ----- Meals (breakfast / lunch / dinner / snacks) -----
+
+    private val zone: ZoneId get() = ZoneId.systemDefault()
+    fun minuteOf(t: Long): Int = Instant.ofEpochMilli(t).atZone(zone).let { it.hour * 60 + it.minute }
+
+    /** Meal of an entry: chosen one, or by the time it was eaten. */
+    fun mealOf(e: FoodEntry): Int = if (e.meal in 0..5) e.meal else Meals.fromMinute(minuteOf(e.time))
+
+    /**
+     * Time for a new entry in this meal: the time already set for the meal that day; today, "now"
+     * if it's the natural time for the meal; otherwise the meal's usual time.
+     */
+    fun mealTime(d: LocalDate, meal: Int): Long {
+        entries(d).filter { mealOf(it) == meal }.minOfOrNull { it.time }?.let { return it }
+        val nowMin = minuteOf(System.currentTimeMillis())
+        if (d == LocalDate.now() && Meals.fits(meal, nowMin)) return System.currentTimeMillis()
+        val m = Meals.DEFAULT_MIN[meal]
+        return d.atTime(m / 60, m % 60).atZone(zone).toInstant().toEpochMilli()
+    }
+
+    /** "I ate breakfast at 9:20": moves every entry of this meal on that day to that time. */
+    fun setMealTime(d: LocalDate, meal: Int, minute: Int) {
+        val t = d.atTime(minute / 60, minute % 60).atZone(zone).toInstant().toEpochMilli()
+        saveDay(d, entries(d).map { if (mealOf(it) == meal) it.copy(time = t, meal = meal) else it })
+    }
+
+    /** Edit one entry (time, meal, amount). */
+    fun update(d: LocalDate, old: FoodEntry, new: FoodEntry) {
+        val list = entries(d).toMutableList()
+        val i = list.indexOf(old)
+        if (i >= 0) { list[i] = new; saveDay(d, list) }
     }
 
     fun remove(d: LocalDate, e: FoodEntry) = saveDay(d, entries(d).filter { it != e })

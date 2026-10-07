@@ -50,7 +50,7 @@ object Reminders {
     fun hm(min: Int) = "%02d:%02d".format(min / 60, min % 60)
 
     /** The evening report comes 45 minutes before bedtime (re-planned every day). */
-    fun scheduleBedtime(ctx: Context) {
+    fun scheduleBedtime(ctx: Context, fromWorker: Boolean = false) {
         val wm = WorkManager.getInstance(ctx)
         if (!PhoneStore.remindBedtime) { wm.cancelUniqueWork("bedtime"); return }
         val now = ZonedDateTime.now()
@@ -59,7 +59,9 @@ object Reminders {
         if (!next.isAfter(now.plusMinutes(1))) next = next.plusDays(1)
         val req = androidx.work.OneTimeWorkRequestBuilder<BedtimeWorker>()
             .setInitialDelay(Duration.between(now, next).toMillis(), TimeUnit.MILLISECONDS).build()
-        wm.enqueueUniqueWork("bedtime", androidx.work.ExistingWorkPolicy.REPLACE, req)
+        // From inside the worker REPLACE would cancel the running job itself; append the next one instead.
+        wm.enqueueUniqueWork("bedtime",
+            if (fromWorker) androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE else androidx.work.ExistingWorkPolicy.REPLACE, req)
     }
 
     fun schedule(ctx: Context, keep: Boolean) {
@@ -193,7 +195,7 @@ class BedtimeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
         if (food.p < target.p - 20) lines += "Белка не хватает ${(target.p - food.p).toInt()} г — лёгкий белковый перекус (творог, кефир)"
         lines += "Без кофеина и тяжёлой еды до сна, экран — потише, в комнате прохладно"
         Reminders.notify(ctx, 105, "Скоро спать — в ${Reminders.hm(bed)}", lines)
-        Reminders.scheduleBedtime(ctx)
+        Reminders.scheduleBedtime(ctx, fromWorker = true)
         return Result.success()
     }
 }

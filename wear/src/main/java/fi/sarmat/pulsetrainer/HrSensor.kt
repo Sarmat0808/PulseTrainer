@@ -241,7 +241,9 @@ object HrSensor {
         val dev: BluetoothDevice = try { ad.getRemoteDevice(address) } catch (e: Exception) { return }
         status.value = if (retries == 0) Status.CONNECTING else Status.RECONNECTING
         try { gatt?.close() } catch (_: Exception) {}
-        gatt = dev.connectGatt(app, false, gattCb, BluetoothDevice.TRANSPORT_LE)
+        gatt = try { dev.connectGatt(app, false, gattCb, BluetoothDevice.TRANSPORT_LE) } catch (e: SecurityException) {
+            status.value = Status.OFF; return
+        } catch (e: Exception) { null }
         // If nothing happens in 12 s, try again.
         main.postDelayed(timeoutCheck, 12_000)
     }
@@ -295,6 +297,8 @@ object HrSensor {
                 retries = 0
                 main.removeCallbacks(timeoutCheck)
                 status.value = Status.CONNECTED
+                // Fresh start for the watchdog: a beat from the previous connection must not count as "silent".
+                lastBeatAt = SystemClock.elapsedRealtime()
                 lastBatt = SystemClock.elapsedRealtime()
                 main.removeCallbacks(watchdog); main.postDelayed(watchdog, 5000)
             }

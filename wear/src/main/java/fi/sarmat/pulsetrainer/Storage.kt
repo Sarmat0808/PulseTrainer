@@ -273,7 +273,15 @@ object Storage {
      * Offline: the watch's own coach — same rules as on the phone, from what the watch knows
      * (night pulse, steps, morning tests, workouts). Used when the phone has not sent today's plan.
      */
-    fun localCoach(): CoachInfo? = try {
+    @Volatile private var localCache: CoachInfo? = null
+
+    /** Cached for 30 min: the calculation reads all history, too heavy to repeat for every tile/complication. */
+    fun localCoach(): CoachInfo? {
+        localCache?.takeIf { System.currentTimeMillis() - it.time < 30 * 60_000L }?.let { return it }
+        return computeLocalCoach()?.also { localCache = it }
+    }
+
+    private fun computeLocalCoach(): CoachInfo? = try {
         val pd = Passive.summaries()
         val days = pd.map { fi.sarmat.pulsetrainer.core.DailyStats(day = it.day, restHr = it.restHr, steps = it.steps, sleepStart = it.sleepStart, sleepEnd = it.sleepEnd) }
         val a = fi.sarmat.pulsetrainer.core.Coach.advise(

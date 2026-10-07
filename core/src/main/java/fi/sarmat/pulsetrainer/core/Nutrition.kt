@@ -31,8 +31,86 @@ data class FoodEntry(
     val f: Double,
     val c: Double,
     val drinkMl: Int,
+    /** Meal (see [Meals]); -1 = not chosen, taken from the time. */
+    val meal: Int = -1,
 ) {
     val kcal: Double get() = p * 4 + f * 9 + c * 4
+}
+
+/**
+ * Meals like in Samsung Health: breakfast, lunch, dinner and three snacks.
+ * The time of each meal is real (you can set it later, when you remember) — it is used for
+ * protein spread over the day, food after a workout and late eating before sleep.
+ */
+object Meals {
+    const val BREAKFAST = 0; const val LUNCH = 1; const val DINNER = 2
+    const val SNACK_AM = 3; const val SNACK_PM = 4; const val SNACK_EVE = 5
+    /** Display order. */
+    val ORDER = listOf(BREAKFAST, SNACK_AM, LUNCH, SNACK_PM, DINNER, SNACK_EVE)
+    val NAMES = listOf("Завтрак", "Обед", "Ужин", "Утренний перекус", "Дневной перекус", "Вечерний перекус")
+    /** Typical time, minutes of the day. */
+    val DEFAULT_MIN = listOf(8 * 60, 13 * 60, 19 * 60, 10 * 60 + 30, 16 * 60, 21 * 60)
+
+    /** Meal from the time of day (for entries added without a meal). */
+    fun fromMinute(m: Int): Int = when (m) {
+        in 300 until 600 -> BREAKFAST
+        in 600 until 720 -> SNACK_AM
+        in 720 until 900 -> LUNCH
+        in 900 until 1080 -> SNACK_PM
+        in 1080 until 1260 -> DINNER
+        else -> SNACK_EVE
+    }
+
+    /** Is "now" a natural time for this meal (±1.5 h of its window)? */
+    fun fits(meal: Int, minuteNow: Int): Boolean = kotlin.math.abs(minuteNow - DEFAULT_MIN[meal]) <= 90
+
+    data class Note(val text: String, val good: Boolean)
+
+    /**
+     * What the timing of food says. [minuteOf] converts an epoch time to minutes of the day (local),
+     * [bedMin] = recommended bedtime (minutes of the day), [workoutEnds] = ends of today's workouts.
+     */
+    fun timing(entries: List<FoodEntry>, target: Targets, bedMin: Int, minuteOf: (Long) -> Int,
+               workoutEnds: List<Long>, isToday: Boolean, nowMin: Int): List<Note> {
+        val out = ArrayList<Note>()
+        val food = entries.filter { it.kcal >= 30 }
+        if (food.isEmpty()) return out
+        // Meals = entries grouped within 45 minutes.
+        val groups = ArrayList<MutableList<FoodEntry>>()
+        food.sortedBy { it.time }.forEach { e ->
+            val g = groups.lastOrNull()
+            if (g != null && e.time - g.last().time <= 45 * 60_000L) g.add(e) else groups.add(mutableListOf(e))
+        }
+        val perMeal = (target.p / 4.0).coerceIn(20.0, 40.0)
+        val proteinMeals = groups.count { g -> g.sumOf { it.p } >= perMeal * 0.8 }
+        val dayDone = !isToday || nowMin >= 20 * 60
+        if (dayDone && groups.size >= 2) {
+            if (proteinMeals >= 3) out += Note("Белок распределён хорошо: $proteinMeals приёма по ~${perMeal.roundToInt()} г и больше — так мышцы растут лучше.", true)
+            else out += Note("Белок лучше делить на 3–4 приёма по ${perMeal.roundToInt()}–40 г. Сегодня таких приёмов: $proteinMeals.", false)
+        }
+        // Late heavy eating before sleep.
+        val last = groups.last()
+        val lastMin = minuteOf(last.first().time)
+        val beforeBed = ((bedMin - lastMin) + 1440) % 1440
+        val lastKcal = last.sumOf { it.kcal }
+        if (lastMin >= 17 * 60 && beforeBed < 120 && lastKcal >= 400)
+            out += Note("Плотная еда (${lastKcal.roundToInt()} ккал) меньше чем за 2 ч до сна — сон и утренняя готовность могут быть хуже. Ужинайте за 2–3 ч до сна.", false)
+        // After a workout: protein within 2 h.
+        workoutEnds.forEach { end ->
+            val after = food.filter { it.time in end..(end + 2 * 3600_000L) }.sumOf { it.p }
+            if (after >= 20) out += Note("После тренировки белок был вовремя (${after.roundToInt()} г за 2 ч) ✓", true)
+            else if (!isToday || (minuteOf(end) + 120) <= nowMin)
+                out += Note("После тренировки за 2 ч белка было ${after.roundToInt()} г — лучше 20–40 г (напиток, творог, яйца).", false)
+        }
+        // A long gap during the day.
+        val gaps = groups.zipWithNext { a, b -> (b.first().time - a.last().time) / 3600_000.0 }
+        gaps.maxOrNull()?.takeIf { it >= 6 }?.let {
+            out += Note("Перерыв без еды ${it.roundToInt()} ч — к вечеру тянет переесть. Небольшой белковый перекус посередине помогает.", false)
+        }
+        val firstMin = minuteOf(groups.first().first().time)
+        if (dayDone && firstMin >= 12 * 60) out += Note("Первая еда после 12:00 — если тренируетесь утром, хотя бы лёгкий завтрак даст силы.", false)
+        return out
+    }
 }
 
 data class Targets(val kcal: Int, val p: Int, val f: Int, val c: Int, val waterMl: Int)

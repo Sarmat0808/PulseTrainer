@@ -41,7 +41,11 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
 
         fun start(ctx: Context, type: WorkoutType) {
             val i = Intent(ctx, WorkoutService::class.java).putExtra(EXTRA_TYPE, type.name)
-            ContextCompat.startForegroundService(ctx, i)
+            try {
+                ContextCompat.startForegroundService(ctx, i)
+            } catch (e: Exception) {
+                android.util.Log.w("PT", "start workout service", e)
+            }
         }
     }
 
@@ -124,10 +128,12 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
             try {
                 startForeground(NOTIF_ID, n, types)
             } catch (e: Exception) {
-                startForeground(NOTIF_ID, n)
+                try { startForeground(NOTIF_ID, n) } catch (e2: Exception) {
+                    android.util.Log.w("PT", "startForeground", e2)
+                }
             }
         } else {
-            startForeground(NOTIF_ID, n)
+            try { startForeground(NOTIF_ID, n) } catch (_: Exception) {}
         }
     }
 

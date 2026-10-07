@@ -45,7 +45,8 @@ abstract class PtComplication : SuspendingComplicationDataSourceService() {
 
     override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationData? {
         Storage.ensureInit(this); Passive.init(this)
-        val v = read() ?: Triple(0f, 100f, "—")
+        val v = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { read() } catch (_: Exception) { null } }
+            ?: Triple(0f, 100f, "—")
         return build(request.complicationType, v)
     }
 

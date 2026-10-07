@@ -136,8 +136,16 @@ object PhoneStore {
     val cardsVersion = MutableStateFlow(0)
 
     fun cardOrder(tab: String, defaults: List<String>): List<String> {
-        val saved = (prefs.getString("cards_$tab", "") ?: "").split(',').filter { it in defaults }
-        return saved + defaults.filter { it !in saved }
+        val saved = (prefs.getString("cards_$tab", "") ?: "").split(',').filter { it in defaults }.toMutableList()
+        if (saved.isEmpty()) return defaults
+        // A card added in a new version goes next to its neighbour from the default order, not to the very end.
+        defaults.forEachIndexed { i, id ->
+            if (id !in saved) {
+                val prevIdx = defaults.take(i).lastOrNull { it in saved }?.let { saved.indexOf(it) } ?: -1
+                saved.add(prevIdx + 1, id)
+            }
+        }
+        return saved
     }
 
     fun saveCardOrder(tab: String, list: List<String>) {
@@ -343,9 +351,16 @@ object PhoneStore {
 
     suspend fun refreshDays(ctx: Context) {
         val snap = try { HealthData.load(ctx, profile.value ?: fi.sarmat.pulsetrainer.core.Profile()) } catch (_: Exception) { null }
-        if (snap != null && snap.days.isNotEmpty()) rawDays = snap.days
+        // A background read can come back empty (Health Connect locked / no permission in background):
+        // never let that wipe what we already have.
+        val hasData = snap != null && snap.days.any {
+            it.sleepMin != null || it.restHr != null || it.steps != null || it.hrvMs != null || it.weightKg != null
+        }
+        if (hasData) rawDays = snap!!.days
         days.value = mergeWatch(rawDays)
-        if (snap != null) { ext.value = snap.ext; if (snap.hrRecent.isNotEmpty()) hrRecent.value = snap.hrRecent }
+        if (snap != null && (hasData || snap.ext.isNotEmpty())) {
+            ext.value = snap.ext; if (snap.hrRecent.isNotEmpty()) hrRecent.value = snap.hrRecent
+        }
         // Every weight from Samsung Health scales / manual entries joins the log (one per day).
         val fromHc = (snap?.days ?: emptyList()).filter { it.weightKg != null }.map { WeightEntry(it.day + 8 * 3600_000L, it.weightKg!!) }
         if (fromHc.isNotEmpty()) {
@@ -428,27 +443,33 @@ object PhoneStore {
     fun get(id: String): Workout? = workouts.value.firstOrNull { it.id == id }
 
     /** Returns true if this workout is new. */
+    /** Returns true if this workout is new. Updates the list in memory (no re-reading of every file). */
     @Synchronized
     fun save(w: Workout): Boolean {
         appCtx?.let { Backup.changed(it) }
         val f = File(dir, "${w.id}.json")
-        val isNew = !f.exists()
-        // Keep the "synced" flag if we already have it.
-        val synced = if (!isNew) (try { WorkoutJson.fromJson(f.readText()).syncedToHealth } catch (_: Exception) { false }) else false
-        f.writeText(WorkoutJson.toJson(w.copy(syncedToHealth = synced || w.syncedToHealth)))
-        reload()
+        val old = get(w.id)
+        val isNew = old == null && !f.exists()
+        val keep = w.copy(syncedToHealth = (old?.syncedToHealth ?: false) || w.syncedToHealth)
+        f.writeText(WorkoutJson.toJson(keep))
+        workouts.value = (workouts.value.filter { it.id != w.id } + keep).sortedByDescending { it.start }
         return isNew
     }
 
+    @Synchronized
     fun markSynced(id: String) {
         val w = get(id) ?: return
-        File(dir, "$id.json").writeText(WorkoutJson.toJson(w.copy(syncedToHealth = true)))
-        reload()
+        val nw = w.copy(syncedToHealth = true)
+        workouts.value = workouts.value.map { if (it.id == id) nw else it }
+        val f = File(dir, "$id.json")
+        Thread { try { f.writeText(WorkoutJson.toJson(nw)) } catch (_: Exception) {} }.start()
     }
 
+    @Synchronized
     fun delete(id: String) {
-        File(dir, "$id.json").delete()
-        reload()
+        workouts.value = workouts.value.filter { it.id != id }
+        val f = File(dir, "$id.json")
+        Thread { f.delete() }.start()
     }
 
     fun saveProfile(profileJson: String?, hrvJson: String?, stressJson: String? = null) {

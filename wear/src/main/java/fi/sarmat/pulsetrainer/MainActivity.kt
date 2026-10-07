@@ -67,8 +67,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        intent?.getStringExtra("start")?.let { pendingStart.value = it }
-        intent?.getStringExtra("open")?.let { pendingOpen.value = it }
+        if (savedInstanceState == null) {
+            intent?.getStringExtra("start")?.let { pendingStart.value = it }
+            intent?.getStringExtra("open")?.let { pendingOpen.value = it }
+        }
         setContent {
             // Larger, crisper text on the wrist (adjustable in Profile → «Размер шрифта»).
             val scale by Storage.fontScale.collectAsState()
@@ -259,7 +261,10 @@ fun GpsPromptScreen(t: WorkoutType, onStart: (WorkoutType) -> Unit) {
         } catch (_: Throwable) {}
         while (true) {
             kotlinx.coroutines.delay(1000)
-            if (locationOn(ctx)) { Haptics.ready(); onStart(t); break }
+            // Start only when the app is in front again (a foreground service can't be started from the background).
+            val resumed = (act as? androidx.lifecycle.LifecycleOwner)?.lifecycle?.currentState
+                ?.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) ?: true
+            if (resumed && locationOn(ctx)) { Haptics.ready(); onStart(t); break }
         }
     }
     ListScreen {
