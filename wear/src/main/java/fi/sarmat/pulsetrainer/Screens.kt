@@ -87,10 +87,9 @@ fun Line(text: String, color: Color = Color.White, size: Int = 15, bold: Boolean
         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
 }
 
-fun typeHint(t: WorkoutType): String = when {
+fun typeHint(t: WorkoutType): String = t.note ?: when {
     t.mode == Mode.SETS && t.repCount -> "Подходы · автосчёт · отдых по пульсу"
     t.mode == Mode.SETS -> "Подходы · отдых по пульсу"
-    t.note != null -> t.note
     t.mode == Mode.ROUNDS -> "Раунды ${fmtDuration(t.roundWork)} / ${fmtDuration(t.roundRest)}"
     t.gps -> "GPS · дистанция · темп · карта"
     t.treadmill -> "Скорость · зоны · калории"
