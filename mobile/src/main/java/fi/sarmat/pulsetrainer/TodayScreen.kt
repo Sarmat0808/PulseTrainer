@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,9 +77,9 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
     val hrRecent by PhoneStore.hrRecent.collectAsState()
     var minuteTick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(5 * 60_000L); minuteTick++ } }
-    val energy = remember(p, days, workouts, tests, check, passive, hrRecent, minuteTick) { PhoneStore.energy() }
     val foodV by FoodStore.version.collectAsState()
     val p = profile ?: Profile()
+    val energy = remember(p, days, workouts, tests, check, passive, hrRecent, minuteTick) { PhoneStore.energy() }
     val today = days.lastOrNull()
     val lastNight = days.lastOrNull { it.sleepMin != null }
     val advice = remember(p, goal, days, workouts, tests, weights, body, ext, check, passive) { PhoneStore.advise() }

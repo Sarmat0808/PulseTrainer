@@ -257,7 +257,7 @@ object PhoneStore {
         lastPassive.value = prefs.getLong("lastPassive", 0L)
         checkIn.value = loadCheckIn()
         favorites.value = parseFav(prefs.getString("fav", null)).ifEmpty {
-            with(fi.sarmat.pulsetrainer.core.WorkoutType) { listOf(STRENGTH, ELLIPTICAL, WALK, TREADMILL, STAIRS_HOME, PULL_UPS) }
+            listOf("STRENGTH", "ELLIPTICAL", "WALK", "TREADMILL", "STAIRS_HOME", "PULL_UPS").map { fi.sarmat.pulsetrainer.core.WorkoutType.valueOf(it) }
         }
         fontScale.value = prefs.getFloat("fontScale", 1.15f)
         lastWorkoutReceived.value = prefs.getLong("lastWorkoutRx", 0L)
