@@ -1,0 +1,50 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: Build
+        run: gradle --no-daemon --stacktrace assembleRelease
+
+      - name: Collect APKs
+        run: |
+          mkdir -p out
+          cp wear/build/outputs/apk/release/*.apk out/PulseTrainer-watch.apk
+          cp mobile/build/outputs/apk/release/*.apk out/PulseTrainer-phone.apk
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PulseTrainer-apks
+          path: out/*.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: PulseTrainer build ${{ github.run_number }}
+          body: |
+            PulseTrainer-watch.apk — установить на Galaxy Watch.
+            PulseTrainer-phone.apk — установить на телефон.
+          files: out/*.apk
+          make_latest: true

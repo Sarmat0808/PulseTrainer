@@ -1,0 +1,124 @@
+package fi.sarmat.pulsetrainer
+
+import android.app.Application
+import android.content.Context
+import android.content.SharedPreferences
+import fi.sarmat.pulsetrainer.core.HrvRecord
+import fi.sarmat.pulsetrainer.core.Profile
+import fi.sarmat.pulsetrainer.core.Workout
+import fi.sarmat.pulsetrainer.core.WorkoutJson
+import fi.sarmat.pulsetrainer.core.WorkoutType
+import kotlinx.coroutines.flow.MutableStateFlow
+import java.io.File
+
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Storage.init(this)
+        HrSensor.init(this)
+        Haptics.init(this)
+    }
+}
+
+object Storage {
+    private lateinit var prefs: SharedPreferences
+    private lateinit var dir: File
+    private lateinit var appCtx: Context
+
+    val profile = MutableStateFlow(Profile())
+
+    fun init(ctx: Context) {
+        appCtx = ctx.applicationContext
+        prefs = ctx.getSharedPreferences("pt", Context.MODE_PRIVATE)
+        dir = File(ctx.filesDir, "workouts").apply { mkdirs() }
+        profile.value = loadProfile()
+        PhoneLink.sendProfile(appCtx)
+    }
+
+    // ---------- Profile ----------
+
+    private fun loadProfile() = Profile(
+        age = prefs.getInt("age", 44),
+        weightKg = prefs.getFloat("weight", 92f).toDouble(),
+        heightCm = prefs.getInt("height", 177),
+        male = prefs.getBoolean("male", true),
+        restHr = prefs.getInt("restHr", 0).takeIf { it > 0 },
+        maxHrOverride = prefs.getInt("maxHr", 0).takeIf { it > 0 },
+    )
+
+    fun saveProfile(p: Profile) {
+        prefs.edit()
+            .putInt("age", p.age).putFloat("weight", p.weightKg.toFloat()).putInt("height", p.heightCm)
+            .putBoolean("male", p.male).putInt("restHr", p.restHr ?: 0).putInt("maxHr", p.maxHrOverride ?: 0)
+            .apply()
+        profile.value = p
+        PhoneLink.sendProfile(appCtx)
+    }
+
+    /** Whether resting HR is updated automatically by the morning test. */
+    var autoRestHr: Boolean
+        get() = prefs.getBoolean("autoRest", true)
+        set(v) { prefs.edit().putBoolean("autoRest", v).apply() }
+
+    // ---------- Sensor ----------
+
+    fun sensorAddress(): String? = prefs.getString("sensorAddr", null)
+    fun sensorName(): String? = prefs.getString("sensorName", null)
+    fun saveSensor(addr: String?, name: String?) {
+        prefs.edit().putString("sensorAddr", addr).putString("sensorName", name).apply()
+    }
+
+    // ---------- Recent exercise types (shown first in the switch list) ----------
+
+    fun recentTypes(): List<WorkoutType> =
+        (prefs.getString("recent", "") ?: "").split(',').filter { it.isNotBlank() }.map { WorkoutType.of(it) }.distinct()
+
+    fun touchType(t: WorkoutType) {
+        val list = (listOf(t) + recentTypes().filter { it != t }).take(6)
+        prefs.edit().putString("recent", list.joinToString(",") { it.name }).apply()
+    }
+
+    fun orderedTypes(): List<WorkoutType> {
+        val r = recentTypes()
+        return r + WorkoutType.entries.filter { it !in r }
+    }
+
+    // ---------- Workouts ----------
+
+    fun save(w: Workout) {
+        File(dir, "${w.id}.json").writeText(WorkoutJson.toJson(w))
+    }
+
+    fun load(id: String): Workout? = try {
+        WorkoutJson.fromJson(File(dir, "$id.json").readText())
+    } catch (_: Exception) { null }
+
+    fun list(): List<Workout> = (dir.listFiles() ?: emptyArray())
+        .sortedByDescending { it.lastModified() }
+        .take(40)
+        .mapNotNull { f -> try { WorkoutJson.fromJson(f.readText()) } catch (_: Exception) { null } }
+
+    fun lastWorkoutEnd(): Long? = list().maxOfOrNull { it.end }
+    fun lastWorkout(): Workout? = list().maxByOrNull { it.end }
+
+    // ---------- Morning HRV ----------
+
+    fun hrvHistory(): List<HrvRecord> = WorkoutJson.hrvFromJson(prefs.getString("hrv", null))
+
+    fun addHrv(r: HrvRecord) {
+        val list = (hrvHistory() + r).sortedBy { it.time }.takeLast(60)
+        prefs.edit().putString("hrv", WorkoutJson.hrvToJson(list)).commit()
+        if (autoRestHr) {
+            val last = list.takeLast(7).map { it.restHr }
+            val rest = last.average().toInt()
+            saveProfile(profile.value.copy(restHr = rest))
+        } else {
+            PhoneLink.sendProfile(appCtx)
+        }
+    }
+
+    fun todayHrv(): HrvRecord? {
+        val r = hrvHistory().lastOrNull() ?: return null
+        return if (System.currentTimeMillis() - r.time < 14 * 3600_000L) r else null
+    }
+}
