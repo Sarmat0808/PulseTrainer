@@ -87,8 +87,8 @@ import kotlin.math.cos
 val ZoneColors = arrayOf(
     Color(0xFF7F8C8D), Color(0xFF8FA3BF), Color(0xFF2D9CDB), Color(0xFF27AE60), Color(0xFFF2994A), Color(0xFFEB5757)
 )
-val CardBg = Color(0xFF1A1F25)
-val Dim = Color(0xFF9AA4AE)
+val CardBg = Color(0xFF1B2128)
+val Dim = Color(0xFFBAC4CE)
 val Accent = Color(0xFF2D9CDB)
 val Danger = Color(0xFFEB5757)
 val Good = Color(0xFF27AE60)
@@ -137,7 +137,7 @@ fun PhoneRoot(openId: MutableState<String?>) {
         if (n > 0) Toast.makeText(ctx, "Записано в Health Connect: $n", Toast.LENGTH_SHORT).show()
     }
 
-    val allPerms = HealthSync.PERMISSIONS + HealthData.READ_PERMISSIONS + HealthData.WRITE_WEIGHT
+    val allPerms = HealthSync.PERMISSIONS + HealthData.READ_PERMISSIONS + HealthData.WRITE_WEIGHT + HealthData.EXTRA_PERMISSIONS
     val hcLauncher = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { g ->
         granted = g
         scope.launch { syncPending(); PhoneStore.refreshDays(ctx) }
@@ -213,7 +213,13 @@ private fun WorkoutsTab(
     workouts: List<Workout>, hcStatus: Int, granted: Set<String>, requestHc: () -> Unit,
     onSync: () -> Unit, open: (String) -> Unit,
 ) {
-    val cards = rememberCards("workouts", WORKOUT_CARDS.keys.toList())
+    val layout = rememberCardLayout("workouts", WORKOUT_CARDS.keys.toList(), WORKOUT_CARDS.keys.toSet())
+    val renderCard: @Composable (String) -> Unit = { id ->
+        when (id) {
+            "health" -> HealthCard(hcStatus, granted, onGrant = requestHc, onSync = onSync)
+            "share" -> ShareCard()
+        }
+    }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(14.dp),
@@ -221,24 +227,18 @@ private fun WorkoutsTab(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Тренировки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
-                ArrangeButton("workouts", WORKOUT_CARDS)
+                Text("Тренировки", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                ArrangeButton("workouts", WORKOUT_CARDS, WORKOUT_CARDS.keys.toSet())
             }
-            Text("Polar H10 / часы → Galaxy Watch → Samsung Health", fontSize = 14.sp, color = Dim)
+            Text("Polar H10 / часы → Galaxy Watch → Samsung Health", fontSize = 15.sp, color = Dim)
         }
         item { LiveCard() }
-        cards.forEach { id ->
-            item(key = id) {
-                when (id) {
-                    "health" -> HealthCard(hcStatus, granted, onGrant = requestHc, onSync = onSync)
-                    "share" -> ShareCard()
-                }
-            }
-        }
+        layout.top.forEach { id -> item(key = id) { renderCard(id) } }
         if (workouts.isEmpty()) item {
-            Text("Пока пусто. Завершите тренировку на часах — она появится здесь автоматически.", color = Dim, fontSize = 14.sp)
+            Text("Пока пусто. Завершите тренировку на часах — она появится здесь автоматически.", color = Dim, fontSize = 16.sp)
         }
         items(workouts, key = { it.id }) { w -> WorkoutRow(w) { open(w.id) } }
+        item(key = "more") { MoreBlock(layout.more.size, "Подробнее: Samsung Health, отчёт для ИИ") { layout.more.forEach { renderCard(it) } } }
     }
 }
 
@@ -272,19 +272,19 @@ private fun LiveCard() {
     Section {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("● Идёт тренировка" + if (l.paused) " (пауза)" else "", color = Danger, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text("● Идёт тренировка" + if (l.paused) " (пауза)" else "", color = Danger, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 Text(type.title + if (l.segmentNo > 1) " · упражнение ${l.segmentNo}" else "", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text(
                     fmtDuration(l.elapsedSec) + " · ${l.kcal} ккал" +
                         (if (l.distanceM > 20) " · ${fmtKm(l.distanceM)} км" else "") +
                         (if (type.mode != Mode.CARDIO) " · ${if (type.mode == Mode.ROUNDS) "раунд" else "подход"} ${l.setNo}" +
                             (if (l.phase == "REST") " (отдых)" else "") else ""),
-                    color = Dim, fontSize = 13.sp
+                    color = Dim, fontSize = 15.sp
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(l.hr?.toString() ?: "--", color = zc, fontSize = 40.sp, fontWeight = FontWeight.Bold)
-                Text(Physiology.ZONE_SHORT[l.zone.coerceIn(0, 5)] + " · " + if (l.sensor == "H10") "H10" else "часы", color = zc, fontSize = 12.sp)
+                Text(Physiology.ZONE_SHORT[l.zone.coerceIn(0, 5)] + " · " + if (l.sensor == "H10") "H10" else "часы", color = zc, fontSize = 15.sp)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -299,7 +299,7 @@ private fun LiveCard() {
                 colors = ButtonDefaults.buttonColors(containerColor = Danger)
             ) { Text("■ Стоп") }
         }
-        Text("Сменить упражнение без остановки:", color = Dim, fontSize = 13.sp)
+        Text("Сменить упражнение без остановки:", color = Dim, fontSize = 15.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             WorkoutType.entries.filter { it != type }.forEach { t ->
                 AssistChip(onClick = { cmd(Protocol.CMD_SWITCH + t.name) }, label = { Text(t.short) })
@@ -330,15 +330,15 @@ private fun HealthCard(status: Int, granted: Set<String>, onGrant: () -> Unit, o
         Text("Samsung Health", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         when {
             status != HealthConnectClient.SDK_AVAILABLE -> {
-                Text("Health Connect недоступен или требует обновления.", color = Warn, fontSize = 13.sp)
+                Text("Health Connect недоступен или требует обновления.", color = Warn, fontSize = 15.sp)
                 Button(onClick = onGrant) { Text("Установить / обновить Health Connect") }
             }
             !any -> {
-                Text("Разрешите запись тренировок в Health Connect — оттуда их забирает Samsung Health.", color = Dim, fontSize = 13.sp)
+                Text("Разрешите запись тренировок в Health Connect — оттуда их забирает Samsung Health.", color = Dim, fontSize = 15.sp)
                 Button(onClick = onGrant) { Text("Разрешить доступ") }
             }
             else -> {
-                Text(if (all) "✓ Тренировки записываются в Health Connect" else "✓ Доступ есть (не все разрешения — например, маршрут)", color = Good, fontSize = 13.sp)
+                Text(if (all) "✓ Тренировки записываются в Health Connect" else "✓ Доступ есть (не все разрешения — например, маршрут)", color = Good, fontSize = 15.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onSync) { Text("Синхронизировать") }
                     if (!all) OutlinedButton(onClick = onGrant) { Text("Разрешения") }
@@ -348,7 +348,7 @@ private fun HealthCard(status: Int, granted: Set<String>, onGrant: () -> Unit, o
         Text(
             "В Samsung Health должна быть включена синхронизация с Health Connect (раздел Health Connect в настройках Samsung Health). " +
                 "Каждое упражнение мультитренировки появится там отдельной тренировкой.",
-            color = Dim, fontSize = 12.sp
+            color = Dim, fontSize = 15.sp
         )
     }
 }
@@ -361,7 +361,7 @@ private fun ShareCard() {
     var withFiles by remember { mutableStateOf(true) }
     Section {
         Text("Поделиться для ИИ-анализа", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text("Полный отчёт всех тренировок за период: нагрузка по неделям, зоны, подходы, восстановление, утренние тесты + запрос к ИИ.", color = Dim, fontSize = 13.sp)
+        Text("Полный отчёт всех тренировок за период: нагрузка по неделям, зоны, подходы, восстановление, утренние тесты + запрос к ИИ.", color = Dim, fontSize = 15.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(7, 30, 90).forEach { d ->
                 Button(onClick = { Share.period(ctx, d, withFiles) }, modifier = Modifier.weight(1f)) { Text("$d дн.") }
@@ -370,7 +370,7 @@ private fun ShareCard() {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { withFiles = !withFiles }) {
             Text(if (withFiles) "☑" else "☐", fontSize = 20.sp, color = Accent)
             Spacer(Modifier.width(8.dp))
-            Text("Приложить файлы CSV/JSON со всеми данными", color = Color.White, fontSize = 13.sp)
+            Text("Приложить файлы CSV/JSON со всеми данными", color = Color.White, fontSize = 15.sp)
         }
     }
 }
@@ -386,12 +386,12 @@ private fun WorkoutRow(w: Workout, onClick: () -> Unit) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(w.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text(if (w.syncedToHealth) "✓ SH" else "⟳", color = if (w.syncedToHealth) Good else Warn, fontSize = 12.sp)
+                Text(if (w.syncedToHealth) "✓ SH" else "⟳", color = if (w.syncedToHealth) Good else Warn, fontSize = 15.sp)
             }
             Text(
                 dateFmt.format(Date(w.start)) + " · " + fmtDuration(w.activeSec) + " · ♥ ${w.avgHr}/${w.maxHr} · ${w.kcalTotal.toInt()} ккал" +
                     if (w.distanceM > 20) " · ${fmtKm(w.distanceM)} км" else "",
-                color = Dim, fontSize = 13.sp
+                color = Dim, fontSize = 15.sp
             )
             ZoneBar(w.zoneSec)
         }
@@ -418,7 +418,7 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
                 TextButton(onClick = onBack) { Text("← Назад") }
             }
             Text(w.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text(dateFmt.format(Date(w.start)) + " · " + w.hrSource, color = Dim, fontSize = 13.sp)
+            Text(dateFmt.format(Date(w.start)) + " · " + w.hrSource, color = Dim, fontSize = 15.sp)
         }
         item {
             Section {
@@ -432,10 +432,10 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
                 ZoneBar(w.zoneSec)
                 for (z in 5 downTo 1) if (w.zoneSec[z] > 0) Text(
                     "${Physiology.ZONE_NAMES[z]} (${w.zoneBounds.getOrNull(z - 1)}–${w.zoneBounds.getOrNull(z)}): ${fmtDuration(w.zoneSec[z])}",
-                    color = ZoneColors[z], fontSize = 13.sp
+                    color = ZoneColors[z], fontSize = 15.sp
                 )
-                Text("Нагрузка TRIMP ${w.trimp.toInt()} · отдых ~${w.recoveryHours} ч", color = Dim, fontSize = 13.sp)
-                Text(Physiology.recoveryText(w.recoveryHours, w.segments), color = Warn, fontSize = 13.sp)
+                Text("Нагрузка TRIMP ${w.trimp.toInt()} · отдых ~${w.recoveryHours} ч", color = Dim, fontSize = 15.sp)
+                Text(Physiology.recoveryText(w.recoveryHours, w.segments), color = Warn, fontSize = 15.sp)
             }
         }
         item {
@@ -453,11 +453,11 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
             item {
                 Section {
                     Text((if (w.segments.size > 1) "${i + 1}. " else "") + s.type.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("${fmtDuration(s.activeSec)} · ♥ ${s.avgHr}/${s.maxHr} · ${s.kcalTotal.toInt()} ккал · TRIMP ${s.trimp.toInt()}", color = Dim, fontSize = 13.sp)
+                    Text("${fmtDuration(s.activeSec)} · ♥ ${s.avgHr}/${s.maxHr} · ${s.kcalTotal.toInt()} ккал · TRIMP ${s.trimp.toInt()}", color = Dim, fontSize = 15.sp)
                     ZoneBar(s.zoneSec)
                     if (s.distanceM > 20) {
                         val pace = (s.activeSec / (s.distanceM / 1000.0)).toInt()
-                        Text("${fmtKm(s.distanceM)} км · темп ${fmtPace(pace)} /км", color = Color.White, fontSize = 14.sp)
+                        Text("${fmtKm(s.distanceM)} км · темп ${fmtPace(pace)} /км", color = Color.White, fontSize = 15.sp)
                     }
                     s.sets.forEachIndexed { n, x ->
                         val parts = mutableListOf<String>()
@@ -466,12 +466,12 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
                         parts += "пик ${x.peakHr}"
                         x.hrr60?.let { parts += "−$it за 60 с" }
                         x.restSec?.let { parts += "отдых ${fmtDuration(it)}" }
-                        Text("${if (s.type.mode == Mode.ROUNDS) "Раунд" else "Подход"} ${n + 1}: " + parts.joinToString(" · "), color = Color.White, fontSize = 13.sp)
+                        Text("${if (s.type.mode == Mode.ROUNDS) "Раунд" else "Подход"} ${n + 1}: " + parts.joinToString(" · "), color = Color.White, fontSize = 15.sp)
                     }
                     s.laps.forEachIndexed { n, l ->
                         val sec = ((l.end - l.start) / 1000).toInt()
                         val pace = if (l.distanceM > 0) (sec / (l.distanceM / 1000.0)).toInt() else null
-                        Text("Круг ${n + 1}: ${l.distanceM.toInt()} м · ${fmtDuration(sec)} · ${fmtPace(pace)} /км", color = Color.White, fontSize = 13.sp)
+                        Text("Круг ${n + 1}: ${l.distanceM.toInt()} м · ${fmtDuration(sec)} · ${fmtPace(pace)} /км", color = Color.White, fontSize = 15.sp)
                     }
                 }
             }
@@ -499,7 +499,7 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
 private fun Stat(v: String, unit: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(v, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text(unit, color = Dim, fontSize = 12.sp)
+        Text(unit, color = Dim, fontSize = 15.sp)
     }
 }
 

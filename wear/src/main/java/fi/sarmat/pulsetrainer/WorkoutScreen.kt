@@ -131,8 +131,8 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit) {
                 Text(hr?.toString() ?: "--", fontSize = 60.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 60.sp)
                 Column(Modifier.padding(start = 4.dp)) {
                     Text("♥", fontSize = 18.sp, color = zc)
-                    if (s.type.mode != Mode.CARDIO) Text(Physiology.ZONE_SHORT[zone], fontSize = 13.sp, fontWeight = FontWeight.Bold, color = zc)
-                    Text(if (hr == null) "нет пульса" else if (s.hrFromStrap) "H10" else "часы", fontSize = 12.sp,
+                    if (s.type.mode != Mode.CARDIO) Text(Physiology.ZONE_SHORT[zone], fontSize = 14.sp, fontWeight = FontWeight.Bold, color = zc)
+                    Text(if (hr == null) "нет пульса" else if (s.hrFromStrap) "H10" else "часы", fontSize = 13.sp,
                         color = if (s.hrFromStrap) Colors.dim else Colors.wait)
                 }
             }
@@ -171,7 +171,7 @@ private fun SetsBlock(s: WorkoutEngine.Ui, hr: Int?) {
         Text(
             s.advice ?: if (s.restReady) "✓ Можно начинать" + (s.lastHrr60?.let { " · −$it" } ?: "")
             else "Ждём: $need",
-            fontSize = 13.sp, color = if (s.advice != null) Colors.wait else Color.White, textAlign = TextAlign.Center, maxLines = 2
+            fontSize = 14.sp, color = if (s.advice != null) Colors.wait else Color.White, textAlign = TextAlign.Center, maxLines = 2
         )
         Spacer(3)
         WideBtn("▶ Подход ${s.setNo + 1}", if (s.restReady) Colors.ready else Colors.card, Modifier.padding(horizontal = 10.dp), height = 40.dp) {
@@ -200,14 +200,14 @@ private fun CardioBlock(s: WorkoutEngine.Ui) {
             Metric(fmtKm(s.distanceM), "км")
             Metric(fmtPace(s.paceSecPerKm), "темп /км")
         }
-        if (!s.gpsFix) Text("Поиск GPS…", fontSize = 13.sp, color = Colors.wait)
+        if (!s.gpsFix) Text("Поиск GPS…", fontSize = 14.sp, color = Colors.wait)
     } else if (s.type.treadmill) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             RoundBtn("−", size = 34.dp, textSize = 20) { WorkoutEngine.adjustTreadSpeed(-0.5) }
             Metric("%.1f".format(s.treadSpeed), "км/ч")
             RoundBtn("+", size = 34.dp, textSize = 20) { WorkoutEngine.adjustTreadSpeed(0.5) }
         }
-        Text("${fmtKm(s.distanceM)} км · ${s.kcal} ккал", fontSize = 13.sp, color = Colors.dim, maxLines = 1)
+        Text("${fmtKm(s.distanceM)} км · ${s.kcal} ккал", fontSize = 14.sp, color = Colors.dim, maxLines = 1)
     } else {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Metric("${s.kcal}", "ккал")
@@ -220,7 +220,7 @@ private fun CardioBlock(s: WorkoutEngine.Ui) {
 private fun Metric(value: String, unit: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White, lineHeight = 26.sp)
-        Text(unit, fontSize = 13.sp, color = Colors.dim)
+        Text(unit, fontSize = 14.sp, color = Colors.dim)
     }
 }
 
@@ -240,7 +240,7 @@ private fun ControlsPage(s: WorkoutEngine.Ui, onSwitch: () -> Unit, back: () -> 
         ) {
             Text("Отменить тренировку без сохранения?", fontSize = 17.sp, fontWeight = FontWeight.Bold,
                 color = Color.White, textAlign = TextAlign.Center)
-            Text("Она не попадёт в историю и Samsung Health", fontSize = 13.sp, color = Colors.dim, textAlign = TextAlign.Center)
+            Text("Она не попадёт в историю и Samsung Health", fontSize = 14.sp, color = Colors.dim, textAlign = TextAlign.Center)
             WideBtn("Да, отменить", Colors.danger) { askCancel = false; WorkoutEngine.discard() }
             WideBtn("Нет", Colors.card) { askCancel = false }
         }
@@ -303,7 +303,7 @@ private fun MapPage(s: WorkoutEngine.Ui) {
             Text("${fmtKm(s.distanceM)} км · ${fmtPace(s.paceSecPerKm)}", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold)
             if (pts.size < 2) Text(if (s.gpsFix) "Начните движение" else "Поиск GPS…", fontSize = 14.sp, color = Colors.wait)
         }
-        Text("Круг ${s.lapNo} · север вверху", fontSize = 13.sp, color = Colors.dim,
+        Text("Круг ${s.lapNo} · север вверху", fontSize = 14.sp, color = Colors.dim,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp))
     }
 }

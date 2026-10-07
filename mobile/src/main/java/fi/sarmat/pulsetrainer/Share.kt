@@ -85,7 +85,7 @@ object Share {
         val from = System.currentTimeMillis() - days * 86400_000L
         val list = PhoneStore.workouts.value.filter { it.start >= from }.sortedBy { it.start }
         val text = Report.periodText(list, days, PhoneStore.profile.value, PhoneStore.hrv.value, PhoneStore.days.value, PhoneStore.goal.value, PhoneStore.weights.value) +
-            bodyText(from) + nutritionText(days)
+            extText(from) + nightText(from) + stressText(from) + readinessText() + bodyText(from) + nutritionText(days)
         if (!withFiles) { sendText(ctx, "PulseTrainer: $days дней", text); return }
         val dir = shareDir(ctx)
         val base = "pulsetrainer_${days}d_${stamp(System.currentTimeMillis())}"
@@ -98,6 +98,49 @@ object Share {
             File(dir, "${base}_full.json").apply { writeText(allJson(list)) },
         )
         send(ctx, "PulseTrainer: $days дней", text, files)
+    }
+
+    /** Workouts from Samsung Health and other apps (with load from their real heart rate). */
+    private fun extText(from: Long): String {
+        val list = PhoneStore.ext.value.filter { it.start >= from }
+        if (list.isEmpty()) return ""
+        val f = SimpleDateFormat("dd.MM HH:mm", Locale("ru"))
+        val sb = StringBuilder("\n## Тренировки из Samsung Health и других приложений\n| Дата | Вид | Мин | Ср. пульс | Макс | Нагрузка TRIMP | Зона 2–3, мин | Зона 4–5, мин |\n|---|---|---|---|---|---|---|---|\n")
+        list.forEach {
+            sb.append("| ${f.format(Date(it.start))} | ${it.title} | ${it.minutes} | ${it.avgHr ?: "—"} | ${it.maxHr ?: "—"} | ${it.trimp.toInt()}${if (it.estimated) " (оценка без пульса)" else ""} | " +
+                "${(it.zoneSec[2] + it.zoneSec[3]) / 60} | ${(it.zoneSec[4] + it.zoneSec[5]) / 60} |\n")
+        }
+        return sb.toString()
+    }
+
+    /** Night resting pulse collected in the background on the watch. */
+    private fun nightText(from: Long): String {
+        val list = PhoneStore.passive.value.filter { it.day >= from }
+        if (list.isEmpty()) return ""
+        val f = SimpleDateFormat("dd.MM.yyyy", Locale("ru"))
+        val sb = StringBuilder("\n## Ночной пульс (фоновый сбор на часах)\n| Дата | Пульс покоя | Средний ночью | Шаги |\n|---|---|---|---|\n")
+        list.forEach { sb.append("| ${f.format(Date(it.day))} | ${it.restHr ?: "—"} | ${it.nightAvg ?: "—"} | ${it.steps ?: "—"} |\n") }
+        return sb.toString()
+    }
+
+    private fun stressText(from: Long): String {
+        val list = PhoneStore.stress.value.filter { it.time >= from }
+        if (list.isEmpty()) return ""
+        val f = SimpleDateFormat("dd.MM HH:mm", Locale("ru"))
+        val sb = StringBuilder("\n## Замеры стресса (0–100)\n")
+        list.forEach { sb.append("- ${f.format(Date(it.time))}: ${it.score} (пульс ${it.hr}${if (it.rmssd > 0) ", ВСР ${it.rmssd.toInt()} мс" else ", по пульсу"})\n") }
+        return sb.toString()
+    }
+
+    private fun readinessText(): String {
+        val a = PhoneStore.advise()
+        val c = PhoneStore.todayCheckIn()
+        val sb = StringBuilder("\n## Готовность сегодня (оценка приложения)\n")
+        sb.append("- ${a.score}/100 · ${fi.sarmat.pulsetrainer.core.Coach.levelText(a)} · ${a.headline}\n")
+        if (c != null) sb.append("- Самочувствие ${c.feel}/5, боль в мышцах ${c.soreness}/2\n")
+        a.reasons.forEach { sb.append("- $it\n") }
+        if (a.missing.isNotEmpty()) sb.append("- Не хватает данных: ${a.missing.joinToString("; ")}\n")
+        return sb.toString()
     }
 
     private fun bodyText(from: Long): String {

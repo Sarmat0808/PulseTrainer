@@ -44,8 +44,8 @@ object Colors {
     val wait = Color(0xFFF2C94C)
     val danger = Color(0xFFEB5757)
     val action = Color(0xFF2D9CDB)
-    val card = Color(0xFF1E2329)
-    val dim = Color(0xFF9AA4AE)
+    val card = Color(0xFF222932)
+    val dim = Color(0xFFC8D0D8)
 }
 
 /**
@@ -101,7 +101,7 @@ fun WideBtn(label: String, color: Color, modifier: Modifier = Modifier, height: 
         modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(50)).background(color).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
+        Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
     }
 }
 

@@ -56,19 +56,27 @@ object Health {
 
     /**
      * Heart strengthening for the last 7 days, WHO style: minutes in zones 2–3 count once,
-     * zones 4–5 count double. Goal 150 per week.
+     * zones 4–5 count double. Goal 150 per week. Other apps' workouts count by their real heart rate
+     * when Health Connect has it; otherwise half their minutes.
      */
-    fun heartMinutes(workouts: List<Workout>, otherMin: Int, now: Long = System.currentTimeMillis()): Int {
+    fun heartMinutes(workouts: List<Workout>, otherMin: Int, now: Long = System.currentTimeMillis(), ext: List<ExtWorkout> = emptyList()): Int {
         val week = workouts.filter { it.start > now - 7 * 86400_000L }
         val mod = week.sumOf { it.zoneSec[2] + it.zoneSec[3] } / 60
         val vig = week.sumOf { it.zoneSec[4] + it.zoneSec[5] } / 60
-        return mod + 2 * vig + otherMin / 2
+        if (ext.isEmpty()) return mod + 2 * vig + otherMin / 2
+        val e = ext.filter { it.start > now - 7 * 86400_000L && week.none { w -> it.start < w.end && it.end > w.start } }
+        val eMod = e.filter { !it.estimated }.sumOf { it.zoneSec[2] + it.zoneSec[3] } / 60
+        val eVig = e.filter { !it.estimated }.sumOf { it.zoneSec[4] + it.zoneSec[5] } / 60
+        val eEst = e.filter { it.estimated }.sumOf { it.minutes } / 2
+        return mod + 2 * vig + eMod + 2 * eVig + eEst
     }
 
-    /** Cardio load: this week's TRIMP vs your 4-week average. */
-    fun cardioLoad(workouts: List<Workout>, now: Long = System.currentTimeMillis()): Triple<Int, Int, String> {
-        val week = workouts.filter { it.start > now - 7 * 86400_000L }.sumOf { it.trimp }.roundToInt()
-        val avg = (workouts.filter { it.start > now - 28 * 86400_000L }.sumOf { it.trimp } / 4).roundToInt()
+    /** Cardio load: this week's TRIMP vs your 4-week average (PulseTrainer + other apps). */
+    fun cardioLoad(workouts: List<Workout>, now: Long = System.currentTimeMillis(), ext: List<ExtWorkout> = emptyList()): Triple<Int, Int, String> {
+        val e = ext.filter { x -> workouts.none { w -> x.start < w.end && x.end > w.start } }
+        fun sum(from: Long) = workouts.filter { it.start > from }.sumOf { it.trimp } + e.filter { it.start > from }.sumOf { it.trimp }
+        val week = sum(now - 7 * 86400_000L).roundToInt()
+        val avg = (sum(now - 28 * 86400_000L) / 4).roundToInt()
         val label = when {
             avg < 30 -> if (week > 0) "Набираем базу" else "Нет нагрузки"
             week < avg * 0.7 -> "Ниже обычного"
@@ -77,6 +85,182 @@ object Health {
             else -> "Слишком высокая"
         }
         return Triple(week, avg, label)
+    }
+
+    /** Daily load (TRIMP) for the last 7 days, oldest first. */
+    fun dailyLoad(workouts: List<Workout>, ext: List<ExtWorkout>, dayStarts: List<Long>): List<Double> {
+        val e = ext.filter { x -> workouts.none { w -> x.start < w.end && x.end > w.start } }
+        return dayStarts.map { d ->
+            workouts.filter { it.start >= d && it.start < d + 86400_000L }.sumOf { it.trimp } +
+                e.filter { it.start >= d && it.start < d + 86400_000L }.sumOf { it.trimp }
+        }
+    }
+
+    // ======================= VO2max =======================
+
+    data class Vo2Report(
+        val value: Double,
+        val measured: Boolean,
+        val level: Score,
+        /** Change vs 2–4 weeks ago (ml/kg/min), null if not enough history. */
+        val change: Double?,
+        val direction: String,
+        /** Weekly values, oldest first (for a small chart). */
+        val series: List<Double>,
+        val nextLevel: String?,
+        val toNext: Double?,
+        val advice: List<String>,
+        val explain: List<String>,
+    )
+
+    private fun restSeries(days: List<DailyStats>, passive: List<PassiveDay>): List<Pair<Long, Int>> {
+        val map = HashMap<Long, Int>()
+        passive.forEach { d -> d.restHr?.let { map[d.day] = it } }
+        days.forEach { d -> d.restHr?.let { map[d.day] = it } }
+        return map.entries.sortedBy { it.key }.map { it.key to it.value }
+    }
+
+    fun vo2Report(
+        p: Profile, goal: Goal, days: List<DailyStats>, workouts: List<Workout>, ext: List<ExtWorkout>,
+        passive: List<PassiveDay>, now: Long = System.currentTimeMillis(),
+    ): Vo2Report? {
+        val day = 86400_000L
+        val measuredPts = days.filter { it.vo2max != null }.map { it.day to it.vo2max!! }
+        val rest = restSeries(days, passive)
+        // Estimate per day from a 7-day median of resting pulse (single nights are noisy).
+        val estPts = rest.map { (t, _) ->
+            val win = rest.filter { it.first in (t - 6 * day)..t }.map { it.second }.sorted()
+            t to 15.3 * Physiology.maxHr(p) / win[win.size / 2]
+        }.filter { it.second in 15.0..80.0 }
+        val pts = if (measuredPts.size >= 2) measuredPts else estPts
+        val current = measuredPts.lastOrNull()?.second ?: estPts.lastOrNull()?.second ?: vo2Estimate(p, p.restHr) ?: return null
+        val measured = measuredPts.isNotEmpty()
+        val lv = vo2Level(p, current)
+
+        val recent = pts.filter { it.first > now - 14 * day }.map { it.second }
+        val before = pts.filter { it.first in (now - 42 * day)..(now - 14 * day) }.map { it.second }
+        val change = if (recent.size >= 3 && before.size >= 3) recent.average() - before.average() else null
+        val direction = when {
+            change == null -> "Тренд появится через 2–4 недели данных"
+            change >= 0.5 -> "Растёт ↑ — сердце становится сильнее"
+            change <= -0.5 -> "Снижается ↓ — форма немного уходит"
+            else -> "Стабильно → держите режим, чтобы сдвинуть вверх"
+        }
+        val series = (5 downTo 0).mapNotNull { k ->
+            val a = now - (k + 1) * 7 * day; val b = now - k * 7 * day
+            pts.filter { it.first in a until b }.map { it.second }.takeIf { it.isNotEmpty() }?.average()
+        }
+
+        // Next level threshold for your age and sex.
+        val decade = (p.age / 10).coerceIn(2, 6)
+        val male = when (decade) {
+            2 -> intArrayOf(37, 42, 46, 51); 3 -> intArrayOf(35, 40, 44, 49); 4 -> intArrayOf(33, 38, 42, 47)
+            5 -> intArrayOf(30, 35, 39, 43); else -> intArrayOf(27, 31, 35, 40)
+        }
+        val t = if (p.male) male else male.map { it - 6 }.toIntArray()
+        val names = listOf("Ниже среднего", "Средний", "Хороший", "Отличный")
+        val idx = t.indexOfFirst { current < it }
+        val nextLevel = if (idx >= 0) names[idx] else null
+        val toNext = if (idx >= 0) t[idx] - current else null
+
+        // ---- Personal advice from your own data ----
+        val e7 = ext.filter { it.start > now - 7 * day }
+        val w7 = workouts.filter { it.start > now - 7 * day }
+        val z2 = (w7.sumOf { it.zoneSec[2] + it.zoneSec[3] } + e7.filter { !it.estimated }.sumOf { it.zoneSec[2] + it.zoneSec[3] }) / 60
+        val hard14 = (workouts.filter { it.start > now - 14 * day }.sumOf { it.zoneSec[4] + it.zoneSec[5] } +
+            ext.filter { it.start > now - 14 * day && !it.estimated }.sumOf { it.zoneSec[4] + it.zoneSec[5] }) / 60
+        val steps = days.filter { it.day > now - 7 * day }.mapNotNull { it.steps }.takeIf { it.isNotEmpty() }?.average()
+        val sleep = days.filter { it.day > now - 7 * day }.mapNotNull { it.sleepMin?.takeIf { m -> m > 0 } }.takeIf { it.isNotEmpty() }?.average()
+        val b = Physiology.zoneBounds(p)
+        val advice = ArrayList<String>()
+        if (hard14 < 10) advice += "Главный рычаг: интервалы 4×4 раз в неделю — 4 мин в зоне 4 (${b[3]}–${b[4]}), 3 мин легко, 4 раза. За 8–10 недель МПК обычно растёт на 5–10%."
+        else advice += "Интервалы есть ($hard14 мин в зонах 4–5 за 2 недели) — продолжайте 1 раз в неделю, не чаще 2."
+        if (z2 < 150) advice += "Зона 2 (${b[1]}–${b[2]}): сейчас $z2 из 150 мин в неделю. Добавьте 2–3 занятия по 40–50 мин — это база, на которой растёт МПК."
+        else advice += "Зона 2: $z2 мин за неделю ✓ — база есть."
+        val bmi = bmi(p)
+        if (bmi >= 27) {
+            val perKg = current / p.weightKg
+            advice += "МПК считается на 1 кг веса: каждые −2 кг жира дают ≈ +${"%.1f".format(perKg * 2)} без единой тренировки. При вашей цели — медленно убирать жир, сохраняя мышцы."
+        }
+        if (steps != null && steps < 8000) advice += "Шаги: в среднем ${steps.roundToInt()} в день — добавьте до 8–10 тыс., это дешёвая аэробная база."
+        if (sleep != null && sleep < 420) advice += "Сон в среднем ${sleep.roundToInt() / 60} ч ${sleep.roundToInt() % 60} мин: при недосыпе сердце хуже адаптируется к нагрузке. Цель — 7–8 ч."
+        if (!measured) advice += "Для точного значения: бег или быстрая ходьба на улице 20+ мин с часами — Samsung Health измерит МПК сам."
+        val explain = listOf(
+            "МПК (VO₂max) — сколько кислорода тело может использовать в минуту на 1 кг. Лучший показатель выносливости сердца и прогноза здоровья.",
+            if (measured) "Значение измерено часами во время бега/ходьбы на улице." else "Оценка по формуле Ута: 15,3 × макс. пульс / пульс покоя. Чем ниже пульс покоя при том же макс. пульсе — тем выше МПК.",
+            "Тренд сравнивает последние 2 недели с 2–6 неделями ранее. Нормальный рост — 0,5–1 единица в месяц.",
+        )
+        return Vo2Report(current, measured, lv, change, direction, series, nextLevel, toNext, advice, explain)
+    }
+
+    // ======================= Where am I heading =======================
+
+    data class Trend(val name: String, val now: String, val delta: String, val better: Boolean?, val note: String)
+
+    /** Last 14 days vs the 14 days before: is each metric moving the right way? */
+    fun trends(
+        p: Profile, goal: Goal, days: List<DailyStats>, workouts: List<Workout>, ext: List<ExtWorkout>,
+        passive: List<PassiveDay>, weights: List<WeightEntry>, now: Long = System.currentTimeMillis(),
+    ): List<Trend> {
+        val day = 86400_000L
+        val out = ArrayList<Trend>()
+        fun <T> split(list: List<Pair<Long, T>>): Pair<List<T>, List<T>> =
+            list.filter { it.first > now - 14 * day }.map { it.second } to list.filter { it.first in (now - 28 * day)..(now - 14 * day) }.map { it.second }
+
+        val (rA, rB) = split(restSeries(days, passive))
+        if (rA.size >= 3 && rB.size >= 3) {
+            val d = rA.average() - rB.average()
+            out += Trend("Пульс покоя", "${rA.average().roundToInt()}", "%+.1f".format(d), if (kotlin.math.abs(d) < 1) null else d < 0,
+                if (d <= -1) "сердце работает экономнее" else if (d >= 1) "усталость, недосып или стресс" else "стабильно")
+        }
+        val (sA, sB) = split(days.mapNotNull { d -> d.sleepMin?.takeIf { it > 0 }?.let { d.day to it } })
+        if (sA.size >= 3 && sB.size >= 3) {
+            val d = sA.average() - sB.average()
+            out += Trend("Сон", "${(sA.average() / 60).let { "%.1f".format(it) }} ч", "%+.0f мин".format(d), if (kotlin.math.abs(d) < 10) null else d > 0,
+                if (sA.average() < 420) "ниже 7 ч — главный тормоз восстановления" else "в норме")
+        }
+        val weekLoad = { a: Long, b: Long ->
+            workouts.filter { it.start in a until b }.sumOf { (it.zoneSec[2] + it.zoneSec[3] + 2 * (it.zoneSec[4] + it.zoneSec[5])) / 60 } +
+                ext.filter { it.start in a until b && workouts.none { w -> it.start < w.end && it.end > w.start } }
+                    .sumOf { if (it.estimated) it.minutes / 2 else (it.zoneSec[2] + it.zoneSec[3] + 2 * (it.zoneSec[4] + it.zoneSec[5])) / 60 }
+        }
+        val hA = weekLoad(now - 14 * day, now + 1) / 2
+        val hB = weekLoad(now - 28 * day, now - 14 * day) / 2
+        if (hA + hB > 0) out += Trend("Минуты для сердца", "$hA/нед", "%+d".format(hA - hB), if (kotlin.math.abs(hA - hB) < 15) null else hA > hB,
+            if (hA >= 150) "норма ВОЗ выполнена" else "цель 150 в неделю")
+        val (wA, wB) = split(weights.map { it.time to it.kg } + days.mapNotNull { d -> d.weightKg?.let { d.day to it } })
+        if (wA.isNotEmpty() && wB.isNotEmpty()) {
+            val d = wA.average() - wB.average()
+            val good = when (goal) {
+                Goal.MASS, Goal.HYBRID -> if (d in 0.1..1.2) true else if (d > 1.5 || d < -0.5) false else null
+                Goal.FAT_LOSS -> if (d < -0.3) true else if (d > 0.3) false else null
+                else -> if (kotlin.math.abs(d) < 0.7) true else null
+            }
+            out += Trend("Вес", "%.1f кг".format(wA.last()), "%+.1f кг".format(d), good,
+                when (goal) { Goal.MASS, Goal.HYBRID -> "цель +0,5…1 кг в месяц"; Goal.FAT_LOSS -> "цель −2…4 кг в месяц"; else -> "держать стабильно" })
+        }
+        val (fA, fB) = split(days.mapNotNull { d -> d.bodyFatPct?.let { d.day to it } })
+        if (fA.size >= 2 && fB.size >= 2) {
+            val d = fA.average() - fB.average()
+            out += Trend("Жир", "%.1f%%".format(fA.average()), "%+.1f".format(d), if (kotlin.math.abs(d) < 0.5) null else d < 0,
+                if (d >= 0.5) "набор идёт с жиром — проверьте калории" else "весы с биоимпедансом неточны ±2–3%")
+        }
+        val (stA, stB) = split(days.mapNotNull { d -> d.steps?.let { d.day to it.toDouble() } })
+        if (stA.size >= 5 && stB.size >= 5) {
+            val d = stA.average() - stB.average()
+            out += Trend("Шаги", "${stA.average().roundToInt()}", "%+d".format(d.roundToInt()), if (kotlin.math.abs(d) < 800) null else d > 0, "цель 8 000+")
+        }
+        return out
+    }
+
+    fun trendVerdict(list: List<Trend>): String {
+        val up = list.count { it.better == true }; val down = list.count { it.better == false }
+        return when {
+            list.isEmpty() -> "Нужно 2–4 недели данных, чтобы увидеть направление."
+            up > down -> "Вы движетесь в правильную сторону: улучшилось $up из ${list.size} показателей."
+            down > up -> "Сейчас откат: ухудшилось $down из ${list.size}. Чаще всего причина — сон и перегрузка."
+            else -> "Пока без явных изменений — режим держится."
+        }
     }
 
     fun bmi(p: Profile): Double = p.weightKg / ((p.heightCm / 100.0) * (p.heightCm / 100.0))

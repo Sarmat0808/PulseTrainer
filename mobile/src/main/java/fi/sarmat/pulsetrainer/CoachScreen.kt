@@ -53,14 +53,15 @@ import kotlin.math.roundToInt
 
 private val COACH_CARDS = linkedMapOf(
     "plan" to "План на сегодня и готовность",
+    "week" to "Неделя",
+    "progress" to "Прогресс (вес, талия)",
     "sync" to "Синхронизация",
     "sleep" to "Сон",
     "stats" to "Показатели часов",
-    "week" to "Неделя",
-    "progress" to "Прогресс (вес, талия)",
     "nutrition" to "Питание под цель",
     "tips" to "Советы тренера",
 )
+private val COACH_MORE = setOf("progress", "sync", "sleep", "stats", "nutrition", "tips")
 
 @Composable
 fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit) {
@@ -71,143 +72,118 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
     val tests by PhoneStore.hrv.collectAsState()
     val weights by PhoneStore.weights.collectAsState()
     val body by PhoneStore.body.collectAsState()
+    val ext by PhoneStore.ext.collectAsState()
+    val passive by PhoneStore.passive.collectAsState()
+    val check by PhoneStore.checkIn.collectAsState()
     val p = profile ?: Profile()
 
-    val todayKey = days.lastOrNull()?.day
     val today = days.lastOrNull()
-    val advice = remember(p, goal, days, workouts, tests, weights, body) {
-        Coach.advise(p, goal, today, days, workouts, tests, weights, body)
+    val advice = remember(p, goal, days, workouts, tests, weights, body, ext, check, passive) { PhoneStore.advise() }
+    val color = levelColor(advice.level)
+    val layout = rememberCardLayout("coach", COACH_CARDS.keys.toList(), COACH_MORE)
+
+    @Composable
+    fun card(id: String) {
+        when (id) {
+            "plan" -> Section {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Ring(advice.score / 100f, color, "${advice.score}", Modifier.size(92.dp))
+                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                        Text(Coach.levelText(advice), color = color, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Text(advice.headline, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                        Text(advice.type.title, color = Accent, fontSize = 15.sp)
+                    }
+                }
+                advice.plan.forEach { BulletText(it) }
+                CheckInBlock()
+                if (advice.avoid.isNotEmpty()) {
+                    Text("Сегодня избегайте", color = Danger, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    advice.avoid.forEach { BulletText(it, Color.White, 15) }
+                }
+                Expander("Почему такая оценка (${advice.confidence} из 5 показателей)") {
+                    advice.reasons.forEach { Text(it, color = if (it.startsWith("▼")) Warn else Color.White, fontSize = 15.sp) }
+                    if (advice.missing.isNotEmpty()) {
+                        Text("Не хватает для точности:", color = Dim, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+                        advice.missing.forEach { BulletText(it, Dim, 15) }
+                    }
+                    Text("🕒 " + advice.whenText, color = Color.White, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp))
+                    Text("Как считается: сон и недосып, пульс покоя к вашей норме, вариабельность пульса (утренний тест), нагрузка за неделю к обычной (включая Samsung Health) и ваше самочувствие. Пока данных мало, оценка не поднимается выше «средней».",
+                        color = Dim, fontSize = 15.sp)
+                }
+            }
+            "sync" -> SyncCard(needAccess, days)
+            "sleep" -> SleepCard(today)
+            "stats" -> StatsCard(days, p)
+            "week" -> Section {
+                Text("Неделя", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                advice.week.forEach { BulletText(it) }
+            }
+            "progress" -> Section {
+                Text("Прогресс", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                WeightChart(weights.map { it.time to it.kg })
+                advice.progress.forEach { BulletText(it) }
+            }
+            "nutrition" -> Section {
+                Text("Питание под цель", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                advice.nutrition.forEach { BulletText(it) }
+            }
+            "tips" -> Section {
+                Text("Советы тренера", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                advice.tips.forEach { BulletText(it) }
+            }
+        }
     }
-    val color = when (advice.level) { 0 -> Good; 1 -> Warn; else -> Danger }
-    val cards = rememberCards("coach", COACH_CARDS.keys.toList())
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Личный тренер", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
-                ArrangeButton("coach", COACH_CARDS)
+                Text("Тренер", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                ArrangeButton("coach", COACH_CARDS, COACH_MORE)
             }
-            Text("Цель: ${goal.title}", fontSize = 14.sp, color = Dim)
+            Text("Цель: ${goal.title}", fontSize = 16.sp, color = Dim)
         }
         if (needAccess) item {
             Section {
-                Text("Подключите данные часов", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text("Разрешите чтение сна, пульса покоя, вариабельности пульса, шагов, SpO2 и веса из Health Connect — тренер станет точнее.", color = Dim, fontSize = 13.sp)
-                Button(onClick = onGrant) { Text("Разрешить доступ") }
+                Text("Подключите данные часов", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Разрешите чтение сна, пульса, тренировок, шагов и веса из Health Connect — тренер станет точнее.", color = Dim, fontSize = 16.sp)
+                Button(onClick = onGrant) { Text("Разрешить доступ", fontSize = 16.sp) }
             }
         }
-        cards.forEach { id -> item(key = id) { when (id) {
-        "plan" -> {
-            Section {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ScoreRing(advice.score, color)
-                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
-                        Text(Coach.levelText(advice.level), color = color, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text(advice.headline, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                        Text(advice.type.title, color = Accent, fontSize = 13.sp)
-                    }
-                }
-                advice.plan.forEach { Bullet(it, Color.White) }
-                Text("🕒 " + advice.whenText, color = Color.White, fontSize = 13.sp)
-                if (advice.reasons.isNotEmpty()) {
-                    Text("Почему:", color = Dim, fontSize = 12.sp)
-                    advice.reasons.forEach { Bullet(it, Dim, 13) }
-                }
-            }
-        }
-        "sync" -> SyncCard(needAccess, days)
-        "sleep" -> SleepCard(today)
-        "stats" -> StatsCard(days, p)
-        "week" -> {
-            Section {
-                Text("Неделя", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                advice.week.forEach { Bullet(it, Color.White) }
-            }
-        }
-        "progress" -> {
-            Section {
-                Text("Прогресс", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                WeightChart(weights.map { it.time to it.kg })
-                advice.progress.forEach { Bullet(it, Color.White) }
-            }
-        }
-        "nutrition" -> {
-            Section {
-                Text("Питание под цель", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                advice.nutrition.forEach { Bullet(it, Color.White) }
-            }
-        }
-        "tips" -> {
-            Section {
-                Text("Советы тренера", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                advice.tips.forEach { Bullet(it, Color.White) }
-            }
-        }
-        } } }
+        layout.top.forEach { id -> item(key = id) { card(id) } }
+        item(key = "more") { MoreBlock(layout.more.size) { layout.more.forEach { card(it) } } }
         item {
-            OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Обновить данные часов") }
+            OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Обновить данные часов", fontSize = 16.sp) }
             Text(
                 "Рекомендации основаны на общепринятых руководствах (ВОЗ, исследования по гипертрофии и интервальным тренировкам) и не заменяют врача.",
-                color = Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp)
+                color = Dim, fontSize = 15.sp, modifier = Modifier.padding(top = 8.dp)
             )
         }
-        if (todayKey == null) item { }
-    }
-}
-
-@Composable
-private fun Bullet(text: String, color: Color, size: Int = 14) {
-    Row {
-        Text("•  ", color = Accent, fontSize = size.sp)
-        Text(text, color = color, fontSize = size.sp)
-    }
-}
-
-@Composable
-private fun ScoreRing(score: Int, color: Color) {
-    Box(Modifier.size(84.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val st = 9.dp.toPx()
-            val d = size.minDimension - st
-            val tl = Offset(st / 2, st / 2)
-            drawArc(Color(0xFF2A3038), 135f, 270f, false, tl, Size(d, d), style = Stroke(st, cap = StrokeCap.Round))
-            drawArc(color, 135f, 270f * score / 100f, false, tl, Size(d, d), style = Stroke(st, cap = StrokeCap.Round))
-        }
-        Text("$score", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun SleepCard(today: fi.sarmat.pulsetrainer.core.DailyStats?) {
     Section {
-        Text("Сон прошлой ночью", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("Сон прошлой ночью", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         val t = today
         val sleep = t?.sleepMin
         if (t == null || sleep == null) {
-            Text("Нет данных. Спите с часами — Samsung Health передаст сон в Health Connect.", color = Dim, fontSize = 13.sp)
+            Text("Нет данных. Спите с часами — Samsung Health передаст сон в Health Connect.", color = Dim, fontSize = 15.sp)
             return@Section
         }
-        Text(Coach.fmtH(sleep), color = if (sleep >= 420) Good else if (sleep >= 360) Warn else Danger, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(Coach.fmtH(sleep), color = if (sleep >= 420) Good else if (sleep >= 360) Warn else Danger, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         val parts = listOfNotNull(
-            t.deepMin?.let { Triple("Глубокий", it, Color(0xFF3B5BDB)) },
+            t.deepMin?.let { Triple("Глубокий", it, Color(0xFF4C6EF5)) },
             t.remMin?.let { Triple("REM", it, Color(0xFF9775FA)) },
             t.lightMin?.let { Triple("Лёгкий", it, Color(0xFF74C0FC)) },
             t.awakeMin?.let { Triple("Пробужд.", it, Color(0xFFF2994A)) },
         )
         if (parts.isNotEmpty()) {
             val total = parts.sumOf { it.second }.coerceAtLeast(1)
-            Row(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp))) {
-                parts.forEach { (_, m, c) -> if (m > 0) Box(Modifier.weight(m.toFloat() / total).height(12.dp).background(c)) }
+            Row(Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(7.dp))) {
+                parts.forEach { (_, m, c) -> if (m > 0) Box(Modifier.weight(m.toFloat() / total).height(14.dp).background(c)) }
             }
-            Text(parts.joinToString(" · ") { "${it.first} ${it.second} мин" }, color = Dim, fontSize = 13.sp)
-            val deep = t.deepMin ?: 0
-            if (sleep > 0) Text(
-                when {
-                    deep.toDouble() / sleep < 0.1 -> "Глубокого сна мало: избегайте тяжёлых тренировок и кофеина поздно вечером."
-                    sleep < 420 -> "Меньше 7 часов — восстановление мышц и сердца замедляется."
-                    else -> "Хороший сон — организм готов к нагрузке."
-                }, color = Color.White, fontSize = 13.sp
-            )
+            Text(parts.joinToString(" · ") { "${it.first} ${it.second} мин" }, color = Dim, fontSize = 15.sp)
         }
     }
 }
@@ -219,7 +195,7 @@ private fun StatsCard(days: List<fi.sarmat.pulsetrainer.core.DailyStats>, p: Pro
         last7.mapNotNull(f).map { it.toDouble() }.takeIf { it.isNotEmpty() }?.average()
     val today = days.lastOrNull()
     Section {
-        Text("Показатели часов", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("Показатели часов", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         StatRow("Пульс покоя", today?.restHr?.toString() ?: "—", avg { it.restHr }?.let { "ср. 7 дн: %.0f".format(it) })
         StatRow("Вариабельность пульса", today?.hrvMs?.let { "%.0f мс".format(it) } ?: "—", avg { it.hrvMs }?.let { "ср. 7 дн: %.0f".format(it) })
         StatRow("Шаги сегодня", today?.steps?.toString() ?: "—", avg { it.steps }?.let { "ср. 7 дн: %.0f".format(it) })
@@ -232,10 +208,10 @@ private fun StatsCard(days: List<fi.sarmat.pulsetrainer.core.DailyStats>, p: Pro
 @Composable
 private fun StatRow(label: String, value: String, sub: String?) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text(label, color = Dim, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(label, color = Dim, fontSize = 16.sp, modifier = Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
-            Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            if (sub != null) Text(sub, color = Dim, fontSize = 11.sp)
+            Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            if (sub != null) Text(sub, color = Dim, fontSize = 15.sp)
         }
     }
 }
@@ -291,33 +267,33 @@ fun ProfileTab() {
                 Stepper("Возраст", "${p.age}", 1.0) { d -> p = p.copy(age = (p.age + d.toInt()).coerceIn(14, 90)) }
                 Stepper("Рост, см", "${p.heightCm}", 1.0) { d -> p = p.copy(heightCm = (p.heightCm + d.toInt()).coerceIn(120, 230)) }
                 Row(Modifier.fillMaxWidth().clickable { p = p.copy(male = !p.male) }.padding(vertical = 6.dp)) {
-                    Text("Пол", color = Dim, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Text("Пол", color = Dim, fontSize = 15.sp, modifier = Modifier.weight(1f))
                     Text(if (p.male) "мужской" else "женский", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
                 Stepper("Пульс покоя", p.restHr?.toString() ?: "авто", 1.0) { d -> p = p.copy(restHr = ((p.restHr ?: 60) + d.toInt()).coerceIn(35, 100)) }
                 Stepper("Макс. пульс", "${Physiology.maxHr(p)}" + if (p.maxHrOverride == null) " (формула)" else "", 1.0) { d ->
                     p = p.copy(maxHrOverride = (Physiology.maxHr(p) + d.toInt()).coerceIn(120, 220))
                 }
-                if (p.maxHrOverride != null) Text("Сбросить макс. пульс к формуле", color = Accent, fontSize = 13.sp,
+                if (p.maxHrOverride != null) Text("Сбросить макс. пульс к формуле", color = Accent, fontSize = 15.sp,
                     modifier = Modifier.clickable { p = p.copy(maxHrOverride = null) })
                 val b = Physiology.zoneBounds(p)
                 Text("Ваши зоны пульса", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
                 for (z in 1..5) {
                     Column(Modifier.padding(vertical = 2.dp)) {
                         Text("${Physiology.ZONE_NAMES[z]}: ${b[z - 1]}–${b[z]}", color = ZoneColors[z], fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text(Physiology.ZONE_FEEL[z], color = Dim, fontSize = 13.sp)
+                        Text(Physiology.ZONE_FEEL[z], color = Dim, fontSize = 15.sp)
                     }
                 }
                 Row(Modifier.fillMaxWidth().clickable { p = p.copy(karvonen = !p.karvonen) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Метод расчёта зон", color = Color.White, fontSize = 15.sp)
                         Text(if (p.karvonen) "Карвонен (от резерва пульса) — зоны выше, для тренированных"
-                            else "% от макс. пульса — как в Polar и Samsung (рекомендуется)", color = Dim, fontSize = 13.sp)
+                            else "% от макс. пульса — как в Polar и Samsung (рекомендуется)", color = Dim, fontSize = 15.sp)
                     }
                     androidx.compose.material3.Switch(checked = p.karvonen, onCheckedChange = { p = p.copy(karvonen = it) })
                 }
                 Text("Проверка зоны 2: можете говорить полными фразами. Если только отдельными словами — вы выше зоны 2, сбавьте темп.",
-                    color = Warn, fontSize = 13.sp)
+                    color = Warn, fontSize = 15.sp)
                 Button(
                     onClick = {
                         val toSave = p
@@ -328,7 +304,7 @@ fun ProfileTab() {
                     },
                     enabled = changed, modifier = Modifier.fillMaxWidth()
                 ) { Text(if (changed) "Сохранить и отправить на часы" else "Сохранено") }
-                if (stored == null) Text("Профиль ещё не пришёл с часов — откройте PulseTrainer на часах.", color = Warn, fontSize = 12.sp)
+                if (stored == null) Text("Профиль ещё не пришёл с часов — откройте PulseTrainer на часах.", color = Warn, fontSize = 15.sp)
             }
         }
         item { FontCard() }
@@ -338,9 +314,9 @@ fun ProfileTab() {
             Section {
                 Text("История веса", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 WeightChart(weights.map { it.time to it.kg })
-                if (weights.isEmpty()) Text("Измените вес выше и сохраните — запись появится здесь и в Samsung Health.", color = Dim, fontSize = 13.sp)
+                if (weights.isEmpty()) Text("Измените вес выше и сохраните — запись появится здесь и в Samsung Health.", color = Dim, fontSize = 15.sp)
                 weights.takeLast(8).reversed().forEach {
-                    Text("${dFmt.format(Date(it.time))}: ${"%.1f".format(it.kg)} кг", color = Color.White, fontSize = 14.sp)
+                    Text("${dFmt.format(Date(it.time))}: ${"%.1f".format(it.kg)} кг", color = Color.White, fontSize = 15.sp)
                 }
             }
         }
@@ -350,7 +326,7 @@ fun ProfileTab() {
 @Composable
 private fun Stepper(label: String, value: String, step: Double, onDelta: (Double) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text(label, color = Dim, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(label, color = Dim, fontSize = 15.sp, modifier = Modifier.weight(1f))
         SmallBtn("−") { onDelta(-step) }
         Text(value, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 10.dp))
@@ -381,7 +357,7 @@ fun SyncCard(needAccess: Boolean, days: List<fi.sarmat.pulsetrainer.core.DailySt
     val lastData = days.lastOrNull { it.sleepMin != null || it.steps != null || it.restHr != null }
     Section {
         Text("Синхронизация", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text("Часы → (Bluetooth) → PulseTrainer на телефоне → Health Connect ⇄ Samsung Health", color = Dim, fontSize = 12.sp)
+        Text("Часы → (Bluetooth) → PulseTrainer на телефоне → Health Connect ⇄ Samsung Health", color = Dim, fontSize = 15.sp)
         SyncLine(watch > 0 && now - watch < 3 * 86400_000L, "Часы PulseTrainer",
             if (watch > 0) "на связи ${ago(watch)}" else "ещё не было связи — откройте приложение на часах")
         live?.takeIf { now - it.time < 15_000 }?.let {
@@ -389,6 +365,9 @@ fun SyncCard(needAccess: Boolean, days: List<fi.sarmat.pulsetrainer.core.DailySt
         }
         SyncLine(lastRx > 0, "Тренировки с часов", if (lastRx > 0) "последняя получена ${ago(lastRx)}" else "пока не было")
         SyncLine(!needAccess, "Health Connect", if (needAccess) "нужен доступ — нажмите «Разрешить» выше" else "доступ есть")
+        val lastP by PhoneStore.lastPassive.collectAsState()
+        SyncLine(lastP > 0 && now - lastP < 2 * 86400_000L, "Фоновый сбор на часах",
+            if (lastP > 0) "ночной пульс и шаги получены ${ago(lastP)}" else "включите на часах: Профиль → «Фоновый сбор»")
         SyncLine(lastData != null, "Данные Samsung Health",
             if (lastData != null) "сон/шаги/пульс покоя до ${SimpleDateFormat("d MMM", Locale("ru")).format(Date(lastData.day))}"
             else "нет — включите синхронизацию Samsung Health с Health Connect")
@@ -400,8 +379,8 @@ private fun SyncLine(ok: Boolean, title: String, sub: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(if (ok) "✓" else "!", color = if (ok) Good else Warn, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 10.dp))
         Column {
-            Text(title, color = Color.White, fontSize = 14.sp)
-            Text(sub, color = Dim, fontSize = 12.sp)
+            Text(title, color = Color.White, fontSize = 15.sp)
+            Text(sub, color = Dim, fontSize = 15.sp)
         }
     }
 }
@@ -424,7 +403,7 @@ private fun BodyCard() {
 
     Section {
         Text("Замеры тела", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text("Раз в 1–2 недели, утром. По талии тренер отличит рост мышц от жира.", color = Dim, fontSize = 12.sp)
+        Text("Раз в 1–2 недели, утром. По талии тренер отличит рост мышц от жира.", color = Dim, fontSize = 15.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NumField("Вес, кг", weight, Modifier.weight(1f)) { weight = it }
             NumField("Талия, см", waist, Modifier.weight(1f)) { waist = it }
@@ -458,7 +437,7 @@ private fun BodyCard() {
                 e.weightKg?.let { "вес %.1f".format(it) }, e.waistCm?.let { "талия %.1f".format(it) }, e.chestCm?.let { "грудь %.1f".format(it) },
                 e.armCm?.let { "бицепс %.1f".format(it) }, e.thighCm?.let { "бедро %.1f".format(it) }, e.bodyFatPct?.let { "жир %.1f%%".format(it) },
             )
-            Text("${dFmt.format(Date(e.time))}: " + parts.joinToString(", "), color = Color.White, fontSize = 13.sp)
+            Text("${dFmt.format(Date(e.time))}: " + parts.joinToString(", "), color = Color.White, fontSize = 15.sp)
         }
     }
 }
@@ -468,7 +447,7 @@ private fun NumField(label: String, value: String, modifier: Modifier, onChange:
     androidx.compose.material3.OutlinedTextField(
         value = value,
         onValueChange = { v -> onChange(v.filter { it.isDigit() || it == '.' || it == ',' }.take(6)) },
-        label = { Text(label, fontSize = 12.sp) },
+        label = { Text(label, fontSize = 15.sp) },
         singleLine = true,
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
         modifier = modifier,
@@ -502,7 +481,7 @@ private fun RemindersCard() {
 @Composable
 private fun Toggle(text: String, on: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(vertical = 4.dp)) {
-        Text(text, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(text, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
         androidx.compose.material3.Switch(checked = on, onCheckedChange = onChange)
     }
 }

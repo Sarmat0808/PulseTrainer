@@ -69,10 +69,10 @@ fun ItemChip(label: String, sub: String? = null, color: Color = Colors.card, onL
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(color)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Text(label, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
-        if (sub != null) Text(sub, fontSize = 13.sp, color = Colors.dim, maxLines = 2)
+        Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
+        if (sub != null) Text(sub, fontSize = 15.sp, color = Colors.dim, maxLines = 3)
     }
 }
 
@@ -82,8 +82,9 @@ fun Card(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun Line(text: String, color: Color = Color.White, size: Int = 15, bold: Boolean = false) {
-    Text(text, color = color, fontSize = size.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+fun Line(text: String, color: Color = Color.White, size: Int = 16, bold: Boolean = false) {
+    // Small text is hard to read on the wrist: never below 14 sp, and medium weight for crisp strokes.
+    Text(text, color = color, fontSize = maxOf(size, 14).sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium,
         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
 }
 
@@ -103,15 +104,26 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
     val st by HrSensor.status.collectAsState()
     val bpm by HrSensor.bpm.collectAsState()
     val running by WorkoutEngine.ui.collectAsState()
+    val coachAll by Storage.coach.collectAsState()
     val types = remember { Storage.mainTypes() }
     val moreCount = remember { Storage.moreTypes().size }
     val hrv = remember { Storage.todayHrv() }
     val last = remember { Storage.lastWorkout() }
+    val coach = coachAll?.takeIf { System.currentTimeMillis() - it.time < 20 * 3600_000L }
 
     ListScreen {
-        item { Line("PulseTrainer", Colors.dim, 14) }
         if (running.running) item {
             ItemChip("● Идёт тренировка", running.type.title, Colors.danger) { open(Scr.Workout) }
+        }
+        // ---- Readiness first: the most important thing of the day ----
+        item {
+            val lv = coach?.level ?: hrv?.status ?: -1
+            val c = when (lv) { 0 -> Color(0xFF1F4D33); 1 -> Color(0xFF4D461F); 2 -> Color(0xFF4D1F1F); else -> Colors.card }
+            when {
+                coach != null -> ItemChip("Готовность ${coach.score} · ${coach.label}", coach.headline, c) { open(Scr.Ready) }
+                hrv != null -> ItemChip("Готовность сегодня", Physiology.READINESS_TEXT[hrv.status], c) { open(Scr.Hrv) }
+                else -> ItemChip("Утренний тест готовности", "2,5 мин лёжа · нажмите, чтобы начать", Colors.action) { open(Scr.Hrv) }
+            }
         }
         item {
             val name = Storage.sensorName()
@@ -122,32 +134,50 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
             }
             ItemChip(label, name ?: "Нажмите для настройки", color) { open(Scr.Sensor) }
         }
-        if (hrv != null) item {
-            val c = when (hrv.status) { 0 -> Color(0xFF1F4D33); 1 -> Color(0xFF4D461F); 2 -> Color(0xFF4D1F1F); else -> Colors.card }
-            ItemChip("Готовность сегодня", Physiology.READINESS_TEXT[hrv.status], c) { open(Scr.Hrv) }
-        }
         if (last != null && last.recoveryHours > 0) {
             val left = ((last.end + last.recoveryHours * 3600_000L - System.currentTimeMillis()) / 3600_000L).toInt()
             if (left > 0) item {
                 Card {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Line("Восстановление: ещё ~$left ч", Colors.wait, 15, bold = true)
-                        Line("после «${last.title}». Лёгкое кардио и прогулка — можно.", Colors.dim, 13)
+                        Line("Восстановление: ещё ~$left ч", Colors.wait, 16, bold = true)
+                        Line("после «${last.title}». Лёгкое кардио и прогулка — можно.", Colors.dim, 14)
                     }
                 }
             }
         }
-        item { ListHeader { Text("Тренировки", fontSize = 16.sp) } }
+        item { ListHeader { Text("Тренировки", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
         items(types) { t ->
             ItemChip(t.title, typeHint(t), onLongClick = { Haptics.tick(); open(Scr.Arrange(t)) }) { onStart(t) }
         }
-        item { Line("Долгое нажатие — переместить или убрать", Colors.dim, 12) }
+        item { Line("Долгое нажатие — переместить или убрать", Colors.dim, 14) }
         item { ItemChip("Другие виды спорта", "Футбол, бассейн, теннис и ещё $moreCount", Color(0xFF233142)) { open(Scr.More) } }
-        item { ItemChip("Порядок тренировок", "Настроить свой список", Color(0xFF233142)) { open(Scr.Order) } }
-        item { ListHeader { Text("Ещё", fontSize = 16.sp) } }
+        item { ListHeader { Text("Здоровье", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
+        item { ItemChip("Стресс", "Замер 1 мин сидя · дыхание", Color(0xFF2A2442)) { open(Scr.Stress) } }
         item { ItemChip("Утренний тест готовности", "2,5 мин лёжа с датчиком") { open(Scr.Hrv) } }
+        item { ListHeader { Text("Ещё", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
         item { ItemChip("История", "Прошлые тренировки") { open(Scr.History) } }
-        item { ItemChip("Профиль и зоны пульса", "Возраст, вес, зоны") { open(Scr.Profile) } }
+        item { ItemChip("Профиль, зоны, шрифт", "Возраст, вес, зоны, фоновый сбор") { open(Scr.Profile) } }
+        item { ItemChip("Порядок тренировок", "Настроить свой список", Color(0xFF233142)) { open(Scr.Order) } }
+    }
+}
+
+/** Today's readiness and plan as calculated by the phone's coach. */
+@Composable
+fun ReadyScreen(open: (Scr) -> Unit) {
+    val all by Storage.coach.collectAsState()
+    val c = all
+    ListScreen {
+        if (c == null) {
+            item { Line("Нет данных с телефона. Откройте PulseTrainer на телефоне.", Colors.dim) }
+        } else {
+            val col = when (c.level) { 0 -> Colors.ready; 1 -> Colors.wait; else -> Colors.danger }
+            item { Line("${c.score}", col, 40, bold = true) }
+            item { Line(c.label, col, 16, bold = true) }
+            item { Line(c.headline, Color.White, 18, bold = true) }
+            c.plan.forEach { p -> item { Card { Line(p, Color.White, 15) } } }
+        }
+        item { ItemChip("Утренний тест", "Уточнить готовность", Colors.action) { open(Scr.Hrv) } }
+        item { Line("Оценку считает тренер на телефоне: сон, ночной пульс, тест, нагрузка, самочувствие.", Colors.dim, 14) }
     }
 }
 
@@ -335,7 +365,7 @@ fun SummaryScreen(id: String, onDone: () -> Unit) {
 private fun Big(v: String, unit: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(v, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Text(unit, fontSize = 12.sp, color = Colors.dim)
+        Text(unit, fontSize = 14.sp, color = Colors.dim)
     }
 }
 
@@ -409,39 +439,40 @@ fun HrvScreen() {
         stage = 2
     }
 
+    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
     ListScreen {
-        item { ListHeader { Text("Готовность", fontSize = 16.sp) } }
         when (stage) {
             0 -> {
-                if (today != null) item { ResultCard(today) }
-                item {
-                    Line("Утром, сразу после пробуждения: лягте и спокойно дышите 2,5 минуты. Не разговаривайте.", Colors.dim, 13)
-                }
+                // Start buttons first — no scrolling needed.
                 if (st == HrSensor.Status.CONNECTED) item {
-                    ItemChip("Начать тест с H10", "Точнее: вариабельность + пульс покоя · ♥ ${bpm ?: "--"}", Colors.action) {
+                    ItemChip("▶ Начать тест с H10", "Точнее: вариабельность + пульс · ♥ ${bpm ?: "--"}", Colors.action) {
                         useStrap = true; stage = 1
                     }
                 }
                 item {
-                    ItemChip("Начать тест с часами", "Без ремня: по пульсу покоя", if (st == HrSensor.Status.CONNECTED) Colors.card else Colors.action) {
+                    ItemChip(if (st == HrSensor.Status.CONNECTED) "Тест только часами" else "▶ Начать тест (часы)",
+                        "Без ремня: по пульсу покоя", if (st == HrSensor.Status.CONNECTED) Colors.card else Colors.action) {
                         useStrap = false; stage = 1
                     }
                 }
+                if (hour >= 11) item { Line("Сейчас день: пульс выше утреннего. Для оценки готовности тест делают утром.", Colors.wait, 14) }
+                if (today != null) item { ResultCard(today) }
+                item { Line("Утром, сразу после пробуждения: лягте и спокойно дышите 2,5 минуты. Не разговаривайте.", Colors.dim, 14) }
             }
             1 -> {
-                item { Line(fmtDuration(left), Color.White, 34, bold = true) }
-                item { Line("♥ ${live ?: "--"} · ${if (useStrap) "H10" else "часы"}", Colors.zone[1], 18) }
-                item { Line(if (left > 120) "Успокойтесь…" else "Измеряю… лежите спокойно", Colors.dim, 14) }
+                item { Line(fmtDuration(left), Color.White, 40, bold = true) }
+                item { Line("♥ ${live ?: "--"} · ${if (useStrap) "H10" else "часы"}", Colors.zone[1], 20, bold = true) }
+                item { Line(if (left > 120) "Успокойтесь…" else "Измеряю… лежите спокойно", Colors.dim, 16) }
                 item { ItemChip("Отмена", null) { stage = 0 } }
             }
             else -> {
-                val r = result
-                if (r != null) item { ResultCard(r) } else item { Line("Не хватило данных. Проверьте посадку и повторите.", Colors.wait, 14) }
                 item { ItemChip("Готово", null, Colors.action) { stage = 0 } }
+                val r = result
+                if (r != null) item { ResultCard(r) } else item { Line("Не хватило данных. Проверьте посадку и повторите.", Colors.wait, 15) }
             }
         }
         item {
-            Line("Тест сравнивается с вашей нормой за 7 дней (нужно 3 теста). С ремнём — по вариабельности пульса, с часами — по пульсу покоя.", Colors.dim, 12)
+            Line("Тест сравнивается с вашей нормой за 7 дней (нужно 3 теста). С ремнём — по вариабельности пульса, с часами — по пульсу покоя.", Colors.dim, 14)
         }
     }
 }
@@ -451,8 +482,8 @@ private fun ResultCard(r: HrvRecord) {
     val c = when (r.status) { 0 -> Colors.ready; 1 -> Colors.wait; 2 -> Colors.danger; else -> Colors.dim }
     Card {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Line(Physiology.READINESS_TEXT[r.status] ?: "", c, 13, bold = true)
-            Line(if (r.rmssd > 0) "ВСР ${r.rmssd.toInt()} мс · покой ${r.restHr} уд/мин" else "Пульс покоя ${r.restHr} уд/мин (часы)", Colors.dim, 13)
+            Line(Physiology.READINESS_TEXT[r.status] ?: "", c, 16, bold = true)
+            Line(if (r.rmssd > 0) "ВСР ${r.rmssd.toInt()} мс · покой ${r.restHr} уд/мин" else "Пульс покоя ${r.restHr} уд/мин (часы)", Color.White, 15)
         }
     }
 }
@@ -464,8 +495,20 @@ fun ProfileScreen() {
     val p by Storage.profile.collectAsState()
     var auto by remember { mutableStateOf(Storage.autoRestHr) }
     val bounds = Physiology.zoneBounds(p)
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val font by Storage.fontScale.collectAsState()
+    var bg by remember { mutableStateOf(Passive.enabled) }
     ListScreen {
-        item { ListHeader { Text("Профиль") } }
+        item { ListHeader { Text("Профиль", fontSize = 18.sp, fontWeight = FontWeight.Bold) } }
+        item { Stepper("Размер шрифта", "${(font * 100).toInt()}%") { d -> Storage.setFontScale(font + d * 0.05f) } }
+        item {
+            ItemChip("Фоновый сбор: " + if (bg) "вкл" else "выкл",
+                if (bg) "Ночной пульс и шаги → телефон. Почти не тратит батарею" else "Нажмите, чтобы включить",
+                if (bg) Color(0xFF1F4D33) else Colors.card) {
+                bg = !bg; Passive.enabled = bg
+                if (bg) Passive.register(ctx) else Passive.unregister(ctx)
+            }
+        }
         item { Stepper("Возраст", "${p.age}") { d -> Storage.saveProfile(p.copy(age = (p.age + d).coerceIn(14, 90))) } }
         item { Stepper("Вес, кг", "${p.weightKg.toInt()}") { d -> Storage.saveProfile(p.copy(weightKg = (p.weightKg + d).coerceIn(35.0, 200.0))) } }
         item { Stepper("Рост, см", "${p.heightCm}") { d -> Storage.saveProfile(p.copy(heightCm = (p.heightCm + d).coerceIn(120, 220))) } }
@@ -520,7 +563,7 @@ private fun Stepper(label: String, value: String, onDelta: (Int) -> Unit) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Colors.card).padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(label, fontSize = 13.sp, color = Colors.dim)
+        Text(label, fontSize = 15.sp, color = Colors.dim)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             RoundBtn("−", size = 34.dp) { onDelta(-1) }
             Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)

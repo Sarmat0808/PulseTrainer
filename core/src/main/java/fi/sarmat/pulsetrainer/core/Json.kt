@@ -160,6 +160,51 @@ object WorkoutJson {
             HrvRecord(x.getLong("t"), x.getDouble("rmssd"), x.getInt("rest"), x.getInt("st"))
         }
     }
+
+    fun stressToJson(list: List<StressRecord>): String {
+        val a = JSONArray()
+        list.forEach { a.put(JSONObject().put("t", it.time).put("s", it.score).put("hr", it.hr).put("rmssd", it.rmssd)) }
+        return a.toString()
+    }
+
+    fun stressFromJson(s: String?): List<StressRecord> = try {
+        if (s.isNullOrBlank()) emptyList() else {
+            val a = JSONArray(s)
+            (0 until a.length()).map {
+                val x = a.getJSONObject(it)
+                StressRecord(x.getLong("t"), x.getInt("s"), x.optInt("hr"), x.optDouble("rmssd", 0.0))
+            }
+        }
+    } catch (_: Exception) { emptyList() }
+
+    private fun JSONObject.putOpt2(k: String, v: Any?): JSONObject = put(k, v ?: JSONObject.NULL)
+    private fun JSONObject.intOrNull(k: String): Int? = if (!has(k) || isNull(k)) null else optInt(k)
+    private fun JSONObject.longOrNull(k: String): Long? = if (!has(k) || isNull(k)) null else optLong(k)
+
+    fun passiveToJson(list: List<PassiveDay>): String {
+        val a = JSONArray()
+        list.forEach {
+            a.put(
+                JSONObject().put("day", it.day).putOpt2("rest", it.restHr).putOpt2("night", it.nightAvg)
+                    .putOpt2("ss", it.sleepStart).putOpt2("se", it.sleepEnd).putOpt2("steps", it.steps)
+                    .putOpt2("min", it.hrMin).putOpt2("max", it.hrMax).putOpt2("avg", it.dayAvg)
+            )
+        }
+        return a.toString()
+    }
+
+    fun passiveFromJson(s: String?): List<PassiveDay> = try {
+        if (s.isNullOrBlank()) emptyList() else {
+            val a = JSONArray(s)
+            (0 until a.length()).map {
+                val x = a.getJSONObject(it)
+                PassiveDay(
+                    x.getLong("day"), x.intOrNull("rest"), x.intOrNull("night"), x.longOrNull("ss"), x.longOrNull("se"),
+                    x.longOrNull("steps"), x.intOrNull("min"), x.intOrNull("max"), x.intOrNull("avg"),
+                )
+            }
+        }
+    } catch (_: Exception) { emptyList() }
 }
 
 /** Watch <-> phone messages. */
@@ -169,6 +214,8 @@ object Protocol {
     const val PATH_CONTROL = "/control"           // phone -> watch commands
     const val PATH_PROFILE = "/profile"           // DataItem: profile + morning tests (for reports)
     const val PATH_PROFILE_SET = "/control/profile" // phone -> watch: profile edited on the phone
+    const val PATH_COACH = "/control/coach"       // phone -> watch: today's readiness and plan (JSON)
+    const val PATH_PASSIVE = "/passive"           // DataItem: background data from the watch (night pulse, steps)
 
     const val CMD_PAUSE = "pause"
     const val CMD_RESUME = "resume"

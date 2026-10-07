@@ -27,6 +27,9 @@ import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.health.connect.client.units.Mass
 import fi.sarmat.pulsetrainer.core.DailyStats
+import fi.sarmat.pulsetrainer.core.ExtWorkout
+import fi.sarmat.pulsetrainer.core.Physiology
+import fi.sarmat.pulsetrainer.core.Profile
 import java.time.Instant
 import java.time.LocalDate
 import java.time.Period
@@ -60,11 +63,20 @@ object HealthData {
     )
     val WRITE_WEIGHT: String = HealthPermission.getWritePermission(WeightRecord::class)
 
+    /** Read data older than 30 days before access was granted (full import of your history). */
+    const val READ_HISTORY = "android.permission.health.READ_HEALTH_DATA_HISTORY"
+    /** Refresh in the background (morning advice before you open the app). */
+    const val READ_BACKGROUND = "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
+    /** Optional: not every Health Connect version knows them, so they never block "access granted". */
+    val EXTRA_PERMISSIONS: Set<String> = setOf(READ_HISTORY, READ_BACKGROUND)
+
+    data class Snapshot(val days: List<DailyStats>, val ext: List<ExtWorkout>)
+
     private val zone: ZoneId get() = ZoneId.systemDefault()
 
     private fun dayStart(t: Instant): Long = t.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
 
-    private suspend fun <T : Record> read(c: HealthConnectClient, type: KClass<T>, from: Instant, to: Instant): List<T> = try {
+    private suspend fun <T : Record> read(c: HealthConnectClient, type: KClass<T>, from: Instant, to: Instant, maxPages: Int = 10): List<T> = try {
         val out = ArrayList<T>()
         var token: String? = null
         var pages = 0
@@ -73,14 +85,20 @@ object HealthData {
             out += resp.records
             token = resp.pageToken
             pages++
-        } while (token != null && pages < 10)
+        } while (token != null && pages < maxPages)
         out
     } catch (_: Exception) { emptyList() }
 
-    suspend fun loadDays(ctx: Context, days: Int = 35): List<DailyStats> {
-        if (!HealthSync.available(ctx)) return emptyList()
+    suspend fun loadDays(ctx: Context, days: Int = 35): List<DailyStats> = load(ctx, Profile(), days).days
+
+    /**
+     * Everything for the coach: daily stats (up to [days] back — 90 with the history permission)
+     * and workouts recorded by other apps with load computed from their real heart rate.
+     */
+    suspend fun load(ctx: Context, profile: Profile, days: Int = 90): Snapshot {
+        if (!HealthSync.available(ctx)) return Snapshot(emptyList(), emptyList())
         val c = HealthConnectClient.getOrCreate(ctx)
-        val granted = try { c.permissionController.getGrantedPermissions() } catch (_: Exception) { return emptyList() }
+        val granted = try { c.permissionController.getGrantedPermissions() } catch (_: Exception) { return Snapshot(emptyList(), emptyList()) }
         val today = LocalDate.now(zone)
         val fromDate = today.minusDays(days.toLong())
         val from = fromDate.atStartOfDay(zone).toInstant()
@@ -157,10 +175,11 @@ object HealthData {
                 upd(day) { it.copy(bodyFatPct = l.maxBy { r -> r.time }.percentage.value) }
             }
         }
+        var foreign: List<ExerciseSessionRecord> = emptyList()
         if (HealthPermission.getReadPermission(ExerciseSessionRecord::class) in granted) {
-            read(c, ExerciseSessionRecord::class, from, to)
+            foreign = read(c, ExerciseSessionRecord::class, from, to)
                 .filter { it.metadata.dataOrigin.packageName != ctx.packageName }
-                .groupBy { dayStart(it.startTime) }.forEach { (day, l) ->
+            foreign.groupBy { dayStart(it.startTime) }.forEach { (day, l) ->
                     upd(day) { it.copy(otherWorkoutMin = l.sumOf { r -> (r.endTime.toEpochMilli() - r.startTime.toEpochMilli()) / 60000 }.toInt()) }
                 }
         }
@@ -236,7 +255,93 @@ object HealthData {
                 }
             } catch (_: Exception) {}
         }
-        return map.values.toList()
+
+        // ---- Heart-rate samples of the last weeks: night resting pulse + load of other apps' workouts ----
+        val ext = ArrayList<ExtWorkout>()
+        val hrFrom = today.minusDays(35).atStartOfDay(zone).toInstant()
+        val samples: List<Pair<Long, Int>> = if (has(HeartRateRecord::class)) {
+            read(c, HeartRateRecord::class, hrFrom, to, maxPages = 60)
+                .flatMap { r -> r.samples.map { it.time.toEpochMilli() to it.beatsPerMinute.toInt() } }
+                .filter { it.second in 30..230 }
+                .sortedBy { it.first }
+        } else emptyList()
+        val times = LongArray(samples.size) { samples[it].first }
+        fun window(a: Long, b: Long): List<Pair<Long, Int>> {
+            if (samples.isEmpty()) return emptyList()
+            var i = java.util.Arrays.binarySearch(times, a).let { if (it < 0) -it - 1 else it }
+            val out = ArrayList<Pair<Long, Int>>()
+            while (i < samples.size && samples[i].first <= b) { out += samples[i]; i++ }
+            return out
+        }
+
+        // Resting pulse from the night when Samsung Health does not share it: lowest 30-minute average.
+        map.keys.toList().forEach { day ->
+            val d = map[day] ?: return@forEach
+            if (d.restHr != null) return@forEach
+            val a = d.sleepStart ?: return@forEach
+            val b = d.sleepEnd ?: return@forEach
+            nightRest(window(a, b))?.let { r -> map[day] = d.copy(restHr = r) }
+        }
+
+        // Other apps' workouts: real load from the heart rate during the session.
+        val bounds = Physiology.zoneBounds(profile)
+        foreign.filter { it.startTime.toEpochMilli() >= hrFrom.toEpochMilli() }.forEach { r ->
+            val a = r.startTime.toEpochMilli(); val b = r.endTime.toEpochMilli()
+            if (b - a < 5 * 60_000L) return@forEach
+            val strength = r.exerciseType in STRENGTH_TYPES
+            val hr = window(a, b)
+            val zoneSec = IntArray(6)
+            var trimp = 0.0
+            if (hr.size >= 10) {
+                for (k in 0 until hr.size - 1) {
+                    val dt = ((hr[k + 1].first - hr[k].first) / 1000).toInt().coerceIn(0, 60)
+                    val z = Physiology.zoneOf(hr[k].second, bounds)
+                    zoneSec[z] += dt
+                    trimp += z * dt / 60.0
+                }
+                ext += ExtWorkout(a, b, typeTitle(r), strength, hr.map { it.second }.average().toInt(), hr.maxOf { it.second }, trimp, zoneSec, false)
+            } else {
+                val min = (b - a) / 60000.0
+                val k = when { r.exerciseType == ExerciseSessionRecord.EXERCISE_TYPE_WALKING -> 1.0; strength -> 1.5; else -> 2.0 }
+                ext += ExtWorkout(a, b, typeTitle(r), strength, null, null, min * k, zoneSec, true)
+            }
+        }
+        return Snapshot(map.values.toList(), ext.sortedBy { it.start })
+    }
+
+    /** Lowest 30-minute average heart rate during the night (needs ~2 h of samples). */
+    fun nightRest(night: List<Pair<Long, Int>>): Int? {
+        if (night.size < 20 || night.last().first - night.first().first < 2 * 3600_000L) return null
+        var best = Double.MAX_VALUE
+        var j = 0
+        var sum = 0.0
+        for (i in night.indices) {
+            sum += night[i].second
+            while (night[i].first - night[j].first > 30 * 60_000L) { sum -= night[j].second; j++ }
+            val n = i - j + 1
+            if (night[i].first - night[j].first >= 20 * 60_000L && n >= 5) best = minOf(best, sum / n)
+        }
+        return if (best == Double.MAX_VALUE) null else kotlin.math.round(best).toInt()
+    }
+
+    private val STRENGTH_TYPES = setOf(
+        ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING,
+        ExerciseSessionRecord.EXERCISE_TYPE_WEIGHTLIFTING,
+        ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS,
+    )
+
+    private fun typeTitle(r: ExerciseSessionRecord): String = r.title?.takeIf { it.isNotBlank() } ?: when (r.exerciseType) {
+        ExerciseSessionRecord.EXERCISE_TYPE_WALKING -> "Ходьба"
+        ExerciseSessionRecord.EXERCISE_TYPE_RUNNING -> "Бег"
+        ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL -> "Беговая дорожка"
+        ExerciseSessionRecord.EXERCISE_TYPE_BIKING -> "Велосипед"
+        ExerciseSessionRecord.EXERCISE_TYPE_BIKING_STATIONARY -> "Велотренажёр"
+        ExerciseSessionRecord.EXERCISE_TYPE_ELLIPTICAL -> "Орбитрек"
+        ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING, ExerciseSessionRecord.EXERCISE_TYPE_WEIGHTLIFTING -> "Силовая"
+        ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS -> "Упражнения с весом тела"
+        ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL -> "Бассейн"
+        ExerciseSessionRecord.EXERCISE_TYPE_HIKING -> "Поход"
+        else -> "Тренировка (Samsung Health)"
     }
 
     /** Store a new body weight in Health Connect (so Samsung Health sees it too). */

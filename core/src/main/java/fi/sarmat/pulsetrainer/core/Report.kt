@@ -71,7 +71,7 @@ object Report {
         dailyTable(sb, daily.filter { it.day >= from - 86400_000L }, "Сон и показатели часов по дням")
 
         if (list.isEmpty()) {
-            sb.appendLine("Тренировок за период нет.")
+            sb.appendLine("Тренировок PulseTrainer за период нет (тренировки из Samsung Health — ниже, если есть).")
             morning(sb, hrv.filter { it.time >= from }, "Утренние тесты готовности")
             return sb.toString()
         }

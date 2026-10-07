@@ -61,17 +61,18 @@ private val hmFmt = SimpleDateFormat("HH:mm", Locale("ru"))
 
 private val NUTRITION_CARDS = linkedMapOf(
     "status" to "Статус дня (норма набрана / осталось)",
-    "macros" to "Белки, жиры, углеводы, жидкость",
     "actions" to "Кнопки: + Еда / Забыл внести",
-    "fill" to "Чем добрать норму",
+    "macros" to "Белки, жиры, углеводы, жидкость",
     "drinks" to "Напитки — одно нажатие",
-    "table" to "Съедено сегодня",
+    "table" to "Съедено сегодня (список)",
+    "fill" to "Чем добрать норму",
     "workout" to "До и после тренировки",
     "plan" to "Пример меню на день",
     "supplements" to "Витамины, минералы, масла",
     "custom" to "Мои продукты",
     "history" to "Последние 7 дней",
 )
+private val NUTRITION_MORE = setOf("table", "fill", "workout", "plan", "supplements", "custom", "history")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -92,13 +93,13 @@ fun NutritionScreen() {
     val forgot = remember(version, date) { FoodStore.forgot(date) }
     val reached = Nutrition.reached(total, target)
     val foods = remember(version) { FoodStore.foods() }
-    val cards = rememberCards("nutrition", NUTRITION_CARDS.keys.toList())
+    val layout = rememberCardLayout("nutrition", NUTRITION_CARDS.keys.toList(), NUTRITION_MORE)
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Питание", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
-                ArrangeButton("nutrition", NUTRITION_CARDS)
+                ArrangeButton("nutrition", NUTRITION_CARDS, NUTRITION_MORE)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { date = date.minusDays(1) }) { Text("◀", fontSize = 18.sp) }
@@ -109,8 +110,7 @@ fun NutritionScreen() {
                 TextButton(onClick = { if (date < LocalDate.now()) date = date.plusDays(1) }) { Text("▶", fontSize = 18.sp) }
             }
         }
-        cards.forEach { id ->
-            item(key = id) {
+        val renderCard: @Composable (String) -> Unit = { id ->
                 when (id) {
                     "status" -> {
                         val (bg, title, sub) = when {
@@ -138,7 +138,7 @@ fun NutritionScreen() {
                         Text(
                             "Норма: ${target.kcal} ккал · Б ${target.p} · Ж ${target.f} · У ${target.c} г" +
                                 if (FoodStore.trainedOn(date)) " (день тренировки)" else "",
-                            color = Dim, fontSize = 13.sp
+                            color = Dim, fontSize = 15.sp
                         )
                     }
                     "actions" -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -156,14 +156,14 @@ fun NutritionScreen() {
                         if (gp <= 5 && gk <= 80) {
                             Text("✓ Норма набрана. Дальше — вода, чай, овощи по желанию.", color = Good, fontSize = 15.sp)
                         } else {
-                            Text("Осталось добрать:", color = Dim, fontSize = 14.sp)
+                            Text("Осталось добрать:", color = Dim, fontSize = 15.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 GapBox("Белки", gp, "г", Color(0xFFEB5757), Modifier.weight(1f))
                                 GapBox("Жиры", gf, "г", Color(0xFFF2C94C), Modifier.weight(1f))
                                 GapBox("Углев.", gc, "г", Color(0xFF2D9CDB), Modifier.weight(1f))
                                 GapBox("Ккал", gk, "", Color(0xFFF2994A), Modifier.weight(1f))
                             }
-                            Text("Нажмите на вариант — он добавится в дневник.", color = Dim, fontSize = 13.sp)
+                            Text("Нажмите на вариант — он добавится в дневник.", color = Dim, fontSize = 15.sp)
                             listOf(Triple('p', gp, "Белок — выберите одно:"), Triple('c', gc, "Углеводы — выберите одно:"), Triple('f', gf, "Жиры — выберите одно:"))
                                 .forEach { (m, gap, title) ->
                                     val opts = Nutrition.cover(m, gap, foods)
@@ -175,34 +175,34 @@ fun NutritionScreen() {
                                         }
                                     }
                                 }
-                            Text("Совет: белок закройте в первую очередь — он важнее всего для мышц.", color = Dim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                            Text("Совет: белок закройте в первую очередь — он важнее всего для мышц.", color = Dim, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp))
                         }
                     }
                     "drinks" -> Section {
                         Text("Напитки — одно нажатие", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            foods.filter { it.drink && !it.custom }.forEach { f ->
+                            Nutrition.QUICK_DRINKS.mapNotNull { id -> foods.firstOrNull { it.id == id } }.forEach { f ->
                                 AssistChip(onClick = {
                                     FoodStore.add(date, f, (f.pieceG ?: 250).toDouble())
                                     Toast.makeText(ctx, "${f.name}: +${f.pieceG ?: 250} мл", Toast.LENGTH_SHORT).show()
-                                }, label = { Text("${f.name} ${f.pieceG ?: 250}", fontSize = 14.sp) })
+                                }, label = { Text("${f.name} ${f.pieceG ?: 250}", fontSize = 15.sp) })
                             }
                         }
                         val coffee = entries.count { it.foodId == "coffee" }
-                        Nutrition.drinkAdvice(total.fluidMl, coffee, target.waterMl).forEach { Text(it, color = Color.White, fontSize = 14.sp) }
+                        Nutrition.drinkAdvice(total.fluidMl, coffee, target.waterMl).forEach { Text(it, color = Color.White, fontSize = 15.sp) }
                     }
                     "table" -> Section {
-                        Text("Съедено", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                        if (entries.isEmpty()) Text("Пока пусто. Нажмите «+ Еда» и внесите вес продукта.", color = Dim, fontSize = 14.sp)
+                        Text("Съедено (${entries.size})", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        if (entries.isEmpty()) Text("Пока пусто. Нажмите «+ Еда» и внесите вес продукта.", color = Dim, fontSize = 15.sp)
                         else {
                             entries.forEach { e ->
                                 var ask by remember(e) { mutableStateOf(false) }
                                 Column(Modifier.fillMaxWidth().clickable { ask = true }.padding(vertical = 4.dp)) {
                                     Row {
                                         Text(e.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                        Text(hmFmt.format(Date(e.time)), color = Dim, fontSize = 13.sp)
+                                        Text(hmFmt.format(Date(e.time)), color = Dim, fontSize = 15.sp)
                                     }
-                                    Text("${amountText(e)} · Б ${n(e.p)} · Ж ${n(e.f)} · У ${n(e.c)} · ${n(e.kcal)} ккал", color = Dim, fontSize = 14.sp)
+                                    Text("${amountText(e)} · Б ${n(e.p)} · Ж ${n(e.f)} · У ${n(e.c)} · ${n(e.kcal)} ккал", color = Dim, fontSize = 15.sp)
                                 }
                                 if (ask) AlertDialog(
                                     onDismissRequest = { ask = false },
@@ -218,7 +218,7 @@ fun NutritionScreen() {
                                 TotalCell(n(total.f), "жиры, г", Modifier.weight(1f))
                                 TotalCell(n(total.c), "углев., г", Modifier.weight(1f))
                             }
-                            Text("Нажмите на продукт, чтобы удалить", color = Dim, fontSize = 12.sp)
+                            Text("Нажмите на продукт, чтобы удалить", color = Dim, fontSize = 15.sp)
                         }
                     }
                     "workout" -> Section {
@@ -231,18 +231,18 @@ fun NutritionScreen() {
                         val (plan, totals) = remember(target, version) { Nutrition.dayPlan(target, foods) }
                         Section {
                             Text("Пример меню на день", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                            Text("Из ваших обычных продуктов, под норму ${target.kcal} ккал", color = Dim, fontSize = 13.sp)
+                            Text("Из ваших обычных продуктов, под норму ${target.kcal} ккал", color = Dim, fontSize = 15.sp)
                             var meal = ""
                             plan.forEach { it ->
                                 if (it.meal != meal) {
                                     meal = it.meal
                                     Text(meal, color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
                                 }
-                                Text("• ${it.name} — ${it.label}", color = Color.White, fontSize = 14.sp)
+                                Text("• ${it.name} — ${it.label}", color = Color.White, fontSize = 15.sp)
                             }
                             Text("Итого: ${totals.kcal.roundToInt()} ккал · Б ${totals.p.roundToInt()} · Ж ${totals.f.roundToInt()} · У ${totals.c.roundToInt()} г",
-                                color = Good, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Гречку, рис, булгур, макароны и киноа можно менять между собой 1:1 по сухому весу.", color = Dim, fontSize = 13.sp)
+                                color = Good, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Гречку, рис, булгур, макароны и киноа можно менять между собой 1:1 по сухому весу.", color = Dim, fontSize = 15.sp)
                         }
                     }
                     "supplements" -> Section {
@@ -253,11 +253,11 @@ fun NutritionScreen() {
                         val customs by FoodStore.custom.collectAsState()
                         Section {
                             Text("Мои продукты", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                            Text("Добавьте продукт с упаковки: белки, жиры, углеводы на 100 г.", color = Dim, fontSize = 13.sp)
+                            Text("Добавьте продукт с упаковки: белки, жиры, углеводы на 100 г.", color = Dim, fontSize = 15.sp)
                             customs.forEach { f ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("${f.name}: Б ${n(f.p)} · Ж ${n(f.f)} · У ${n(f.c)} · ${f.kcal.roundToInt()} ккал/100", color = Color.White,
-                                        fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                        fontSize = 15.sp, modifier = Modifier.weight(1f))
                                     TextButton(onClick = { FoodStore.deleteCustom(f.id) }) { Text("✕", color = Danger) }
                                 }
                             }
@@ -278,16 +278,17 @@ fun NutritionScreen() {
                                 Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text(h.date.format(DateTimeFormatter.ofPattern("EEEE, d.MM", Locale("ru"))), color = Color.White, fontSize = 15.sp)
-                                        Text("${n(h.totals.kcal)} ккал · Б ${n(h.totals.p)} · Ж ${n(h.totals.f)} · У ${n(h.totals.c)}", color = Dim, fontSize = 13.sp)
+                                        Text("${n(h.totals.kcal)} ккал · Б ${n(h.totals.p)} · Ж ${n(h.totals.f)} · У ${n(h.totals.c)}", color = Dim, fontSize = 15.sp)
                                     }
-                                    Text(mark, color = col, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    Text(mark, color = col, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
                     }
                 }
-            }
         }
+        layout.top.forEach { id -> item(key = id) { renderCard(id) } }
+        item(key = "more") { MoreBlock(layout.more.size, "Подробнее: съедено, меню, советы") { layout.more.forEach { renderCard(it) } } }
     }
 
     if (addOpen) AddFoodDialog(foods, onDismiss = { addOpen = false }) { f, amount ->
@@ -320,7 +321,7 @@ private fun GapBox(label: String, gap: Double, unit: String, color: Color, modif
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(if (done) "✓" else "${gap.roundToInt()}", color = if (done) Good else color, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        Text(if (done) label else "$label${if (unit.isNotEmpty()) ", $unit" else ""}", color = Dim, fontSize = 12.sp, maxLines = 1)
+        Text(if (done) label else "$label${if (unit.isNotEmpty()) ", $unit" else ""}", color = Dim, fontSize = 15.sp, maxLines = 1)
     }
 }
 
@@ -328,7 +329,7 @@ private fun GapBox(label: String, gap: Double, unit: String, color: Color, modif
 private fun TotalCell(v: String, label: String, modifier: Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(v, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-        Text(label, color = Dim, fontSize = 12.sp, maxLines = 1)
+        Text(label, color = Dim, fontSize = 15.sp, maxLines = 1)
     }
 }
 
@@ -361,12 +362,12 @@ private fun TableRow(a: String, b: String, c: String, d: String, e: String, f: S
     val col = if (header) Dim else Color.White
     val w = if (header) FontWeight.Bold else FontWeight.Normal
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(a, color = col, fontSize = 14.sp, fontWeight = w, modifier = Modifier.weight(3f))
-        Text(b, color = col, fontSize = 14.sp, fontWeight = w, modifier = Modifier.weight(1.4f), textAlign = TextAlign.End)
-        Text(c, color = col, fontSize = 14.sp, fontWeight = w, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
-        Text(d, color = col, fontSize = 14.sp, fontWeight = w, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
-        Text(e, color = col, fontSize = 14.sp, fontWeight = w, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
-        Text(f, color = col, fontSize = 14.sp, fontWeight = w, modifier = Modifier.weight(1.2f), textAlign = TextAlign.End)
+        Text(a, color = col, fontSize = 15.sp, fontWeight = w, modifier = Modifier.weight(3f))
+        Text(b, color = col, fontSize = 15.sp, fontWeight = w, modifier = Modifier.weight(1.4f), textAlign = TextAlign.End)
+        Text(c, color = col, fontSize = 15.sp, fontWeight = w, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+        Text(d, color = col, fontSize = 15.sp, fontWeight = w, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+        Text(e, color = col, fontSize = 15.sp, fontWeight = w, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+        Text(f, color = col, fontSize = 15.sp, fontWeight = w, modifier = Modifier.weight(1.2f), textAlign = TextAlign.End)
     }
 }
 
@@ -389,12 +390,12 @@ private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, onAdd: (Food
                     OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Поиск") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Nutrition.CATEGORIES.forEach { c ->
-                            FilterChip(selected = cat == c, onClick = { cat = if (cat == c) null else c }, label = { Text(c, fontSize = 13.sp) })
+                            FilterChip(selected = cat == c, onClick = { cat = if (cat == c) null else c }, label = { Text(c, fontSize = 15.sp) })
                         }
                     }
                     val list = foods
                         .filter { cat == null || it.category == cat }
-                        .filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+                        .filter { query.isBlank() || query.trim().split(' ').filter { w -> w.isNotBlank() }.all { w -> it.name.contains(w, ignoreCase = true) || it.category.contains(w, ignoreCase = true) } }
                         .sortedBy { val i = recent.indexOf(it.id); if (i < 0) 999 else i }
                     LazyColumn(Modifier.heightIn(max = 340.dp)) {
                         items(list, key = { it.id }) { item ->
@@ -404,7 +405,7 @@ private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, onAdd: (Food
                             }.padding(vertical = 8.dp)) {
                                 Text(item.name, color = Color.White, fontSize = 16.sp)
                                 Text("Б ${n(item.p)} · Ж ${n(item.f)} · У ${n(item.c)} · ${item.kcal.roundToInt()} ккал на 100 ${if (item.drink) "мл" else "г"}",
-                                    color = Dim, fontSize = 13.sp)
+                                    color = Dim, fontSize = 15.sp)
                             }
                         }
                     }
@@ -456,7 +457,7 @@ private fun CustomFoodDialog(onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Название") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Text("На 100 ${if (drink) "мл" else "г"} (с упаковки):", color = Dim, fontSize = 13.sp)
+                Text("На 100 ${if (drink) "мл" else "г"} (с упаковки):", color = Dim, fontSize = 15.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     NumIn("Белки", p, Modifier.weight(1f)) { p = it }
                     NumIn("Жиры", f, Modifier.weight(1f)) { f = it }
@@ -465,10 +466,10 @@ private fun CustomFoodDialog(onDismiss: () -> Unit) {
                 NumIn("Вес 1 шт / порции, г (необязательно)", piece, Modifier.fillMaxWidth()) { piece = it }
                 Row(Modifier.clickable { drink = !drink }, verticalAlignment = Alignment.CenterVertically) {
                     Text(if (drink) "☑" else "☐", color = Accent, fontSize = 20.sp)
-                    Text("  Это напиток (считать в жидкость)", color = Color.White, fontSize = 14.sp)
+                    Text("  Это напиток (считать в жидкость)", color = Color.White, fontSize = 15.sp)
                 }
                 val kc = (d(p) ?: 0.0) * 4 + (d(f) ?: 0.0) * 9 + (d(c) ?: 0.0) * 4
-                Text("≈ ${kc.roundToInt()} ккал на 100", color = Good, fontSize = 14.sp)
+                Text("≈ ${kc.roundToInt()} ккал на 100", color = Good, fontSize = 15.sp)
             }
         },
         confirmButton = {
@@ -486,7 +487,7 @@ private fun NumIn(label: String, value: String, modifier: Modifier, onChange: (S
     OutlinedTextField(
         value = value,
         onValueChange = { v -> onChange(v.filter { it.isDigit() || it == '.' || it == ',' }.take(6)) },
-        label = { Text(label, fontSize = 12.sp) },
+        label = { Text(label, fontSize = 15.sp) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = modifier,

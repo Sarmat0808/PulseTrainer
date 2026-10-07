@@ -40,6 +40,9 @@ sealed interface Scr {
     data class Arrange(val type: WorkoutType) : Scr
     data object More : Scr
     data object Order : Scr
+    data object Ready : Scr
+    data object Stress : Scr
+    data object Breathe : Scr
 }
 
 class MainActivity : ComponentActivity() {
@@ -51,7 +54,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { AppRoot() } }
+        setContent {
+            // Larger, crisper text on the wrist (adjustable in Profile → «Размер шрифта»).
+            val scale by Storage.fontScale.collectAsState()
+            val base = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, base.fontScale * scale)
+            ) { MaterialTheme { AppRoot() } }
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -67,6 +77,7 @@ class MainActivity : ComponentActivity() {
 
 private fun neededPermissions(): Array<String> {
     val list = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BODY_SENSORS)
+    if (Build.VERSION.SDK_INT >= 29) list += Manifest.permission.ACTIVITY_RECOGNITION
     if (Build.VERSION.SDK_INT >= 31) {
         list += Manifest.permission.BLUETOOTH_SCAN
         list += Manifest.permission.BLUETOOTH_CONNECT
@@ -84,14 +95,26 @@ fun AppRoot() {
     fun push(s: Scr) { stack.add(s) }
     fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
 
+    // Background pulse needs a separate "allow all the time" grant after the normal sensor permission.
+    val bgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        Passive.register(ctx)
+    }
+    fun askBackground() {
+        val bgPerm = "android.permission.BODY_SENSORS_BACKGROUND"
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.BODY_SENSORS) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(ctx, bgPerm) != PackageManager.PERMISSION_GRANTED && Passive.enabled
+        ) bgLauncher.launch(bgPerm) else Passive.register(ctx)
+    }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         HrSensor.connectSaved()
+        askBackground()
     }
     LaunchedEffect(Unit) {
         val missing = neededPermissions().filter {
             ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isNotEmpty()) launcher.launch(missing.toTypedArray()) else HrSensor.connectSaved()
+        if (missing.isNotEmpty()) launcher.launch(missing.toTypedArray()) else { HrSensor.connectSaved(); askBackground() }
     }
 
     // Workout finished (on the watch or from the phone) -> summary.
@@ -140,6 +163,9 @@ fun AppRoot() {
                     is Scr.Arrange -> ArrangeScreen(current.type, onStart = ::startWorkout)
                     Scr.More -> MoreScreen(onStart = ::startWorkout, open = { push(it) })
                     Scr.Order -> OrderScreen()
+                    Scr.Ready -> ReadyScreen(open = { push(it) })
+                    Scr.Stress -> StressScreen(open = { push(it) })
+                    Scr.Breathe -> BreatheScreen(onDone = { pop() })
                     else -> {}
                 }
             } }

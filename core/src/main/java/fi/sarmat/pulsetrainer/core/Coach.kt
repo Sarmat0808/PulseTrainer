@@ -82,7 +82,16 @@ data class CoachAdvice(
     val nutrition: List<String>,
     val progress: List<String>,
     val tips: List<String>,
+    /** How many of the 5 inputs (sleep, resting pulse, HRV, load, your feeling) were available. */
+    val confidence: Int = 5,
+    /** What is missing to make the score reliable. */
+    val missing: List<String> = emptyList(),
+    /** Things to avoid today. */
+    val avoid: List<String> = emptyList(),
 )
+
+/** One input of the readiness score, for the "why" list. */
+data class Factor(val text: String, val points: Int)
 
 /**
  * Rule-based personal coach built on established guidelines:
@@ -108,94 +117,150 @@ object Coach {
         weights: List<WeightEntry>,
         body: List<BodyEntry> = emptyList(),
         now: Long = System.currentTimeMillis(),
+        ext: List<ExtWorkout> = emptyList(),
+        checkIn: CheckIn? = null,
+        passive: List<PassiveDay> = emptyList(),
     ): CoachAdvice {
         var type = DayType.CARDIO
         val bounds = Physiology.zoneBounds(p)
-        val reasons = ArrayList<String>()
-        var score = 100
+        val factors = ArrayList<Factor>()
+        val missing = ArrayList<String>()
+        val avoid = ArrayList<String>()
+        var confidence = 0
+        val todayKey = today?.day ?: (now - now % DAY)
 
-        // ---- Sleep ----
+        // ---- 1. Sleep: last night + last 3 nights (sleep debt) ----
         val sleep = today?.sleepMin
-        if (sleep != null) {
+        if (sleep != null && sleep > 0) {
+            confidence++
             val h = sleep / 60.0
             when {
-                h < 5.5 -> { score -= 25; reasons += "Мало сна: ${fmtH(sleep)} (нужно 7–9 ч)" }
-                h < 6.5 -> { score -= 15; reasons += "Сон короче нормы: ${fmtH(sleep)}" }
-                h < 7.0 -> { score -= 5; reasons += "Сон чуть меньше 7 ч: ${fmtH(sleep)}" }
-                else -> reasons += "Сон в норме: ${fmtH(sleep)}"
+                h < 5.5 -> factors += Factor("Мало сна: ${fmtH(sleep)} (нужно 7–9 ч)", -25)
+                h < 6.5 -> factors += Factor("Сон короче нормы: ${fmtH(sleep)}", -15)
+                h < 7.0 -> factors += Factor("Сон чуть меньше 7 ч: ${fmtH(sleep)}", -5)
+                else -> factors += Factor("Сон в норме: ${fmtH(sleep)}", 0)
             }
             val deep = today?.deepMin
-            if (deep != null && sleep > 0 && deep.toDouble() / sleep < 0.10) { score -= 5; reasons += "Мало глубокого сна: $deep мин" }
-        }
+            if (deep != null && deep.toDouble() / sleep < 0.12) factors += Factor("Мало глубокого сна: $deep мин", -5)
+            val last3 = days.filter { it.day <= todayKey }.takeLast(3).mapNotNull { it.sleepMin?.takeIf { m -> m > 0 } }
+            if (last3.size >= 3 && last3.average() < 390) factors += Factor("Недосып накапливается: в среднем ${fmtH(last3.average().roundToInt())} за 3 ночи", -10)
+        } else missing += "сон (спите с часами)"
 
-        // ---- Resting HR vs. 14-day baseline ----
-        val restBase = days.filter { it.day < (today?.day ?: now) }.takeLast(14).mapNotNull { it.restHr }
-        val restToday = today?.restHr ?: tests.lastOrNull()?.takeIf { now - it.time < 16 * 3600_000L }?.restHr
+        // ---- 2. Resting pulse vs your 14-day norm (Samsung Health or PulseTrainer's own night pulse) ----
+        fun restOf(day: Long): Int? = days.firstOrNull { it.day == day }?.restHr ?: passive.firstOrNull { it.day == day }?.restHr
+        val restDays = (days.map { it.day } + passive.map { it.day }).distinct().filter { it < todayKey }.sorted().takeLast(14)
+        val restBase = restDays.mapNotNull { restOf(it) }
+        val restToday = restOf(todayKey)
         if (restToday != null && restBase.size >= 4) {
+            confidence++
             val diff = restToday - restBase.average()
             when {
-                diff >= 6 -> { score -= 20; reasons += "Пульс покоя выше обычного на ${diff.roundToInt()} — признак усталости или болезни" }
-                diff >= 3 -> { score -= 10; reasons += "Пульс покоя немного повышен (+${diff.roundToInt()})" }
-                else -> reasons += "Пульс покоя в норме: $restToday"
+                diff >= 6 -> factors += Factor("Пульс покоя ночью выше обычного на ${diff.roundToInt()} — усталость или начало болезни", -20)
+                diff >= 3 -> factors += Factor("Пульс покоя немного повышен (+${diff.roundToInt()})", -10)
+                diff <= -2 -> factors += Factor("Пульс покоя ниже обычного ($restToday) — хорошее восстановление", 0)
+                else -> factors += Factor("Пульс покоя в норме: $restToday", 0)
             }
-        }
+        } else missing += if (restToday == null) "ночной пульс покоя (носите часы ночью)" else "норма пульса покоя (ещё ${4 - restBase.size} ноч.)"
 
-        // ---- Morning test (own) or watch HRV ----
+        // ---- 3. HRV: morning test (strap) or watch HRV ----
         val test = tests.lastOrNull()?.takeIf { now - it.time < 16 * 3600_000L }
         if (test != null && test.status >= 0) {
+            confidence++
+            val strap = test.rmssd > 0
             when (test.status) {
-                2 -> { score -= 30; reasons += if (test.rmssd > 0) "Утренний тест: вариабельность пульса сильно ниже нормы" else "Утренний тест: пульс покоя сильно выше нормы" }
-                1 -> { score -= 15; reasons += if (test.rmssd > 0) "Утренний тест: вариабельность пульса ниже нормы" else "Утренний тест: пульс покоя выше нормы" }
-                else -> reasons += "Утренний тест: восстановление хорошее"
+                2 -> factors += Factor(if (strap) "Утренний тест: вариабельность пульса сильно ниже нормы" else "Утренний тест: пульс покоя сильно выше нормы", -30)
+                1 -> factors += Factor(if (strap) "Утренний тест: вариабельность пульса ниже нормы" else "Утренний тест: пульс покоя выше нормы", -15)
+                else -> factors += Factor("Утренний тест: восстановление хорошее", 0)
             }
         } else {
-            val hrvBase = days.filter { it.day < (today?.day ?: now) }.takeLast(14).mapNotNull { it.hrvMs }
+            val hrvBase = days.filter { it.day < todayKey }.takeLast(14).mapNotNull { it.hrvMs }
             val hrv = today?.hrvMs
             if (hrv != null && hrvBase.size >= 4) {
+                confidence++
                 val ratio = hrv / hrvBase.average()
                 when {
-                    ratio < 0.75 -> { score -= 20; reasons += "Вариабельность пульса (часы) заметно ниже обычной" }
-                    ratio < 0.9 -> { score -= 10; reasons += "Вариабельность пульса (часы) немного снижена" }
+                    ratio < 0.75 -> factors += Factor("Вариабельность пульса заметно ниже обычной", -20)
+                    ratio < 0.9 -> factors += Factor("Вариабельность пульса немного снижена", -10)
+                    else -> factors += Factor("Вариабельность пульса в норме", 0)
                 }
+            } else {
+                val n = tests.count { it.rmssd > 0 && it.time > now - 7 * DAY }
+                missing += if (test != null && test.status < 0) "норма вариабельности: сделано $n из 3 утренних тестов" else "утренний тест с ремнём H10"
             }
         }
 
-        // ---- Training load: acute (7 d) vs chronic (28 d) ----
-        val acute = workouts.filter { it.start > now - 7 * DAY }.sumOf { it.trimp }
-        val chronicWeek = workouts.filter { it.start > now - 28 * DAY }.sumOf { it.trimp } / 4.0
-        if (chronicWeek > 30) {
-            val acwr = acute / chronicWeek
-            when {
-                acwr > 1.5 -> { score -= 15; reasons += "Нагрузка за неделю резко выросла (×${"%.1f".format(acwr)}) — риск перегрузки" }
-                acwr < 0.6 -> reasons += "Нагрузка за неделю ниже обычной — можно добавить"
-            }
-        }
+        // ---- 4. Training load: PulseTrainer + other apps (Samsung Health, auto-detected walks) ----
+        val extNew = ext.filter { e -> workouts.none { w -> e.start < w.end && e.end > w.start } }
+        fun loadBetween(a: Long, b: Long) = workouts.filter { it.start in a until b }.sumOf { it.trimp } +
+            extNew.filter { it.start in a until b }.sumOf { it.trimp }
+        val acute = loadBetween(now - 7 * DAY, now + 1)
+        val chronicWeek = loadBetween(now - 28 * DAY, now + 1) / 4.0
+        val hasLoadData = workouts.any { it.start > now - 28 * DAY } || extNew.any { it.start > now - 28 * DAY }
+        if (hasLoadData) {
+            confidence++
+            if (chronicWeek > 30) {
+                val acwr = acute / chronicWeek
+                when {
+                    acwr > 1.5 -> factors += Factor("Нагрузка за неделю резко выросла (×${"%.1f".format(acwr)}) — риск перегрузки", -15)
+                    acwr > 1.3 -> factors += Factor("Нагрузка за неделю выше обычной (×${"%.1f".format(acwr)})", -7)
+                    acwr < 0.6 -> factors += Factor("Нагрузка за неделю ниже обычной — можно добавить", 0)
+                    else -> factors += Factor("Нагрузка за неделю в норме", 0)
+                }
+                val last2 = loadBetween(now - 2 * DAY, now + 1)
+                if (last2 > chronicWeek / 7.0 * 2 * 1.6 && last2 > 60) factors += Factor("Последние 2 дня были нагруженными", -8)
+            } else factors += Factor("Нагрузка: собираем вашу норму (нужно ~4 недели данных)", 0)
+        } else missing += "тренировки за 4 недели"
 
-        // ---- Recovery after the last session ----
+        // ---- Recovery after the last hard session (own or from Samsung Health) ----
         val last = workouts.maxByOrNull { it.end }
         val hoursSince = last?.let { (now - it.end) / 3600_000.0 }
         if (last != null && hoursSince != null) {
             val left = last.recoveryHours - hoursSince
-            if (left > 0) {
-                score -= minOf(20, (left / 2).roundToInt() + 5)
-                reasons += "После «${last.title}» прошло ${hoursSince.roundToInt()} ч из ~${last.recoveryHours} ч восстановления"
-            }
+            if (left > 0) factors += Factor("После «${last.title}» прошло ${hoursSince.roundToInt()} ч из ~${last.recoveryHours} ч восстановления", -minOf(20, (left / 2).roundToInt() + 5))
+        }
+        extNew.filter { it.trimp >= 80 && it.end > (last?.end ?: 0L) && now - it.end < 24 * 3600_000L }.maxByOrNull { it.end }?.let { e ->
+            factors += Factor("Вчера/сегодня: «${e.title}» ${e.minutes} мин — организм ещё восстанавливается", -8)
         }
 
-        score = score.coerceIn(0, 100)
-        val level = when { score >= 70 -> 0; score >= 45 -> 1; else -> 2 }
+        // ---- 5. How you feel (the most honest signal — the watch cannot feel for you) ----
+        if (checkIn != null) {
+            confidence++
+            when (checkIn.feel) {
+                1 -> factors += Factor("Самочувствие: разбит", -30)
+                2 -> factors += Factor("Самочувствие: устал", -18)
+                3 -> factors += Factor("Самочувствие: обычное", -5)
+                else -> factors += Factor("Самочувствие: бодрое", 0)
+            }
+            when (checkIn.soreness) {
+                2 -> { factors += Factor("Сильная боль в мышцах", -10); avoid += "Силовая на больные мышцы — дайте им 48–72 ч" }
+                1 -> factors += Factor("Мышцы немного болят", -3)
+            }
+        } else missing += "ваше самочувствие (ответьте на 2 вопроса)"
 
-        // ---- Recent history ----
+        var score = (100 + factors.sumOf { it.points }).coerceIn(0, 100)
+        // Without enough data the app must not claim "excellent readiness".
+        if (confidence <= 2) score = minOf(score, 74)
+        var level = when { score >= 75 -> 0; score >= 50 -> 1; else -> 2 }
+        if (checkIn != null && checkIn.feel <= 2 && level == 0) level = 1
+        if (checkIn != null && checkIn.feel == 1) level = maxOf(level, 1)
+        val reasons = factors.sortedBy { it.points }.map { (if (it.points < 0) "▼ " else "• ") + it.text }
+
+        // ---- Recent history (PulseTrainer + other apps) ----
         val week = workouts.filter { it.start > now - 7 * DAY }
-        val z2 = week.sumOf { it.zoneSec[2] + it.zoneSec[3] } / 60
-        val hard = week.sumOf { it.zoneSec[4] + it.zoneSec[5] } / 60
-        val strengthDays = week.filter { w -> w.segments.any { it.type.strength && it.sets.isNotEmpty() } }
-            .map { it.start / DAY }.distinct().size
-        val lastStrength = workouts.filter { w -> w.segments.any { it.type.strength } }.maxOfOrNull { it.end }
+        val extWeek = extNew.filter { it.start > now - 7 * DAY }
+        val z2 = (week.sumOf { it.zoneSec[2] + it.zoneSec[3] } + extWeek.sumOf { it.zoneSec[2] + it.zoneSec[3] }) / 60
+        val hard = (week.sumOf { it.zoneSec[4] + it.zoneSec[5] } + extWeek.sumOf { it.zoneSec[4] + it.zoneSec[5] }) / 60
+        val strengthDays = (week.filter { w -> w.segments.any { it.type.strength && it.sets.isNotEmpty() } }.map { it.start / DAY } +
+            extWeek.filter { it.strength }.map { it.start / DAY }).distinct().size
+        val lastStrength = (workouts.filter { w -> w.segments.any { it.type.strength } }.map { it.end } +
+            extNew.filter { it.strength }.map { it.end }).maxOrNull()
         val hSinceStrength = lastStrength?.let { (now - it) / 3600_000.0 } ?: 999.0
-        val lastHard = workouts.filter { it.zoneSec[4] + it.zoneSec[5] > 300 }.maxOfOrNull { it.end }
+        val lastHard = (workouts.filter { it.zoneSec[4] + it.zoneSec[5] > 300 }.map { it.end } +
+            extNew.filter { it.zoneSec[4] + it.zoneSec[5] > 300 }.map { it.end }).maxOrNull()
         val hSinceHard = lastHard?.let { (now - it) / 3600_000.0 } ?: 999.0
         val other = days.filter { it.day > now - 7 * DAY }.sumOf { it.otherWorkoutMin ?: 0 }
+        val sore = checkIn?.soreness == 2
+        val tired = checkIn != null && checkIn.feel <= 2
 
         val z = { a: Int, b: Int -> "${bounds[a - 1]}–${bounds[b]}" }
         val ready = Physiology.readyHr(p)
@@ -217,12 +282,12 @@ object Coach {
                 headline = "Сегодня — лёгкая тренировка"
                 type = DayType.CARDIO
                 plan += "Кардио в зоне 2: 30–40 мин (пульс ${z(2, 2)}) — орбитрек, велотренажёр или быстрая ходьба."
-                if (hSinceStrength >= 48 && goal != Goal.HEART)
+                if (hSinceStrength >= 48 && goal != Goal.HEART && !tired && !sore)
                     plan += "Или облегчённая силовая: 2–3 подхода на упражнение, не до отказа (оставьте 3–4 повтора в запасе)."
                 plan += "Без интервалов в зонах 4–5."
             }
             else -> {
-                val strengthDue = hSinceStrength >= 48 && strengthDays < 3
+                val strengthDue = hSinceStrength >= 48 && strengthDays < 3 && !sore
                 val hardDue = hSinceHard >= 72 && hard < 20
                 when (goal) {
                     Goal.HYBRID -> if (strengthDue) {
@@ -421,7 +486,14 @@ object Coach {
         val start = ((now / DAY) % all.size).toInt()
         val tips = (0 until 3).map { all[(start + it) % all.size] }
 
-        return CoachAdvice(type, whenText, score, level, headline, reasons, plan, weekLines, nutrition, progress, tips)
+        when (level) {
+            2 -> { avoid += "Интервалы, тяжёлая силовая, работа до отказа"; avoid += "Кофеин после 14:00 и плотная еда перед сном" }
+            1 -> avoid += "Зоны 4–5 и подходы до отказа"
+        }
+        if (sleep != null && sleep < 390) avoid += "Тяжёлая тренировка позже 20:00 — ещё сильнее урежет сон"
+        if (confidence <= 2) avoid += "Не ориентируйтесь только на цифру — данных пока мало, слушайте самочувствие"
+
+        return CoachAdvice(type, whenText, score, level, headline, reasons, plan, weekLines, nutrition, progress, tips, confidence, missing, avoid)
     }
 
     private fun activityFactor(sessions: Int, steps: Double?): Double {
@@ -439,7 +511,9 @@ object Coach {
 
     fun fmtH(min: Int) = "${min / 60} ч ${min % 60} мин"
 
-    fun levelText(level: Int) = when (level) { 0 -> "Отличная готовность"; 1 -> "Средняя готовность"; else -> "Нужен отдых" }
+    fun levelText(level: Int) = when (level) { 0 -> "Высокая готовность"; 1 -> "Средняя готовность"; else -> "Нужно восстановление" }
+
+    fun levelText(a: CoachAdvice) = levelText(a.level) + if (a.confidence <= 2) " · мало данных" else ""
 
     @Suppress("unused")
     private fun maxOf0(a: Int, b: Int) = max(a, b)

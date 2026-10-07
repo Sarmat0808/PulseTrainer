@@ -171,6 +171,37 @@ object Physiology {
         return status
     }
 
+    // ---------- Stress (on demand, like Samsung's "measure stress") ----------
+
+    /**
+     * Stress 0–100 from a 1-minute calm, seated measurement.
+     * With the chest strap: mostly HRV (RMSSD) compared to your own morning norm — stress lowers HRV
+     * (sympathetic activity) — plus how far the pulse is above your resting pulse.
+     * Watch only: apps get no beat-to-beat data from the watch, so only the pulse part is used.
+     */
+    fun stress(rmssd: Double, hr: Int, p: Profile, morning: List<HrvRecord>): Int {
+        val rest = p.restHr ?: morning.lastOrNull()?.restHr ?: 65
+        val max = maxHr(p)
+        val hrPart = ((hr - rest - 2).toDouble() / max(10.0, 0.25 * (max - rest))).coerceIn(0.0, 1.0)
+        if (rmssd <= 0) return (hrPart * 100).roundToInt().coerceIn(0, 100)
+        val base = morning.filter { it.rmssd > 0 }.takeLast(7).map { it.rmssd }.takeIf { it.isNotEmpty() }?.average()
+            ?: (60.0 - 0.6 * p.age).coerceAtLeast(20.0) // rough age norm until you have morning tests
+        // Seated daytime HRV is normally a bit below the lying morning value: 0.8 of the norm = "calm".
+        val hrvPart = ((ln(base * 0.8) - ln(max(rmssd, 3.0))) / 1.1 + 0.25).coerceIn(0.0, 1.0)
+        return ((0.7 * hrvPart + 0.3 * hrPart) * 100).roundToInt().coerceIn(0, 100)
+    }
+
+    fun stressLabel(s: Int) = when { s <= 25 -> "Низкий"; s <= 50 -> "Нормальный"; s <= 75 -> "Повышенный"; else -> "Высокий" }
+
+    fun stressLevel(s: Int) = when { s <= 50 -> 0; s <= 75 -> 1; else -> 2 }
+
+    fun stressAdvice(s: Int): String = when {
+        s <= 25 -> "Вы спокойны и восстановлены."
+        s <= 50 -> "Обычное дневное напряжение."
+        s <= 75 -> "Напряжение повышено: 2 минуты медленного дыхания (вдох 4 с, выдох 6 с) заметно его снижают."
+        else -> "Высокое напряжение: сделайте дыхание 2–3 мин, тяжёлую тренировку лучше заменить зоной 2 или прогулкой."
+    }
+
     val READINESS_TEXT = mapOf(
         -1 to "Собираем вашу норму: нужно 3 утренних теста.",
         0 to "Готов: можно тяжёлую тренировку.",

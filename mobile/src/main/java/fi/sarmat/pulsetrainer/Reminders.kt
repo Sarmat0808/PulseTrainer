@@ -15,7 +15,6 @@ import androidx.work.workDataOf
 import fi.sarmat.pulsetrainer.core.Coach
 import fi.sarmat.pulsetrainer.core.CoachAdvice
 import fi.sarmat.pulsetrainer.core.DayType
-import fi.sarmat.pulsetrainer.core.Profile
 import java.time.Duration
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
@@ -26,16 +25,7 @@ object Reminders {
     private const val EVENING = "coach-evening"
     const val EVENING_HOUR = 18
 
-    fun advice(): CoachAdvice = Coach.advise(
-        PhoneStore.profile.value ?: Profile(),
-        PhoneStore.goal.value,
-        PhoneStore.days.value.lastOrNull(),
-        PhoneStore.days.value,
-        PhoneStore.workouts.value,
-        PhoneStore.hrv.value,
-        PhoneStore.weights.value,
-        PhoneStore.body.value,
-    )
+    fun advice(): CoachAdvice = PhoneStore.advise()
 
     /** keep = true on app start (do not disturb an existing schedule); false after settings change. */
     fun schedule(ctx: Context, keep: Boolean) {
@@ -84,7 +74,8 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val a = Reminders.advice()
         val kind = inputData.getString("kind")
         if (Reminders.isMorning(kind)) {
-            val lines = listOf("Готовность ${a.score}/100 · ${Coach.levelText(a.level)}") + a.plan.take(3) + a.whenText
+            val lines = listOf("Готовность ${a.score}/100 · ${Coach.levelText(a)}") + a.plan.take(3) + a.whenText +
+                (if (PhoneStore.todayCheckIn() == null) listOf("Откройте приложение и отметьте самочувствие — оценка станет точнее.") else emptyList())
             Reminders.notify(ctx, 101, "Тренер: ${a.headline}", lines)
         } else {
             val dayStart = ZonedDateTime.now().toLocalDate().atStartOfDay(ZonedDateTime.now().zone).toInstant().toEpochMilli()

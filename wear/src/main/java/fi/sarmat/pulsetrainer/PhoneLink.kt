@@ -33,6 +33,7 @@ object PhoneLink {
             val req = PutDataMapRequest.create(Protocol.PATH_PROFILE).apply {
                 dataMap.putString("profile", WorkoutJson.profileToJson(Storage.profile.value))
                 dataMap.putString("hrv", WorkoutJson.hrvToJson(Storage.hrvHistory()))
+                dataMap.putString("stress", WorkoutJson.stressToJson(Storage.stressHistory()))
                 dataMap.putLong("ts", System.currentTimeMillis())
             }.asPutDataRequest()
             Wearable.getDataClient(ctx).putDataItem(req)
@@ -59,6 +60,11 @@ object PhoneLink {
 /** Phone -> watch: switch exercise, pause, finish, next set. */
 class ControlListenerService : WearableListenerService() {
     override fun onMessageReceived(event: MessageEvent) {
+        if (event.path == Protocol.PATH_COACH) {
+            val json = String(event.data)
+            Handler(Looper.getMainLooper()).post { Storage.saveCoach(json) }
+            return
+        }
         if (event.path == Protocol.PATH_PROFILE_SET) {
             val p = WorkoutJson.profileFromJson(String(event.data)) ?: return
             Handler(Looper.getMainLooper()).post {

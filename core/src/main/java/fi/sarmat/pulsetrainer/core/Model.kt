@@ -148,6 +148,61 @@ data class Workout(
     val maxHr: Int get() = hr.maxOfOrNull { it.bpm } ?: 0
 }
 
+/**
+ * A workout recorded by another app (Samsung Health, auto-detected walks...), read from Health Connect.
+ * Load is computed from the heart rate during the session when available, otherwise estimated.
+ */
+data class ExtWorkout(
+    val start: Long,
+    val end: Long,
+    val title: String,
+    val strength: Boolean,
+    val avgHr: Int?,
+    val maxHr: Int?,
+    val trimp: Double,
+    /** Seconds in [below Z1, Z1..Z5]. */
+    val zoneSec: IntArray,
+    /** true = no heart rate in the session, load is a rough estimate from minutes. */
+    val estimated: Boolean,
+) {
+    val minutes: Int get() = ((end - start) / 60000).toInt()
+}
+
+/** How you feel today (Polar Recovery Pro style questions). */
+data class CheckIn(
+    /** Epoch day (local). */
+    val day: Long,
+    /** 1 = exhausted … 5 = great. */
+    val feel: Int,
+    /** 0 = no soreness, 1 = some, 2 = strong. */
+    val soreness: Int,
+)
+
+/** On-demand stress measurement (watch). */
+data class StressRecord(
+    val time: Long,
+    /** 0–100. */
+    val score: Int,
+    val hr: Int,
+    /** 0 when measured with the watch only (no beat-to-beat data). */
+    val rmssd: Double,
+)
+
+/** One day of passive background data collected by PulseTrainer on the watch. */
+data class PassiveDay(
+    /** Local midnight, epoch millis. */
+    val day: Long,
+    /** Lowest 30-min average heart rate of the night. */
+    val restHr: Int? = null,
+    val nightAvg: Int? = null,
+    val sleepStart: Long? = null,
+    val sleepEnd: Long? = null,
+    val steps: Long? = null,
+    val hrMin: Int? = null,
+    val hrMax: Int? = null,
+    val dayAvg: Int? = null,
+)
+
 /** Morning readiness test. */
 data class HrvRecord(
     val time: Long,

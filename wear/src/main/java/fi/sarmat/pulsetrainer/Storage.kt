@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import fi.sarmat.pulsetrainer.core.HrvRecord
 import fi.sarmat.pulsetrainer.core.Profile
+import fi.sarmat.pulsetrainer.core.StressRecord
 import fi.sarmat.pulsetrainer.core.Workout
 import fi.sarmat.pulsetrainer.core.WorkoutJson
 import fi.sarmat.pulsetrainer.core.WorkoutType
@@ -17,6 +18,8 @@ class App : Application() {
         Storage.init(this)
         HrSensor.init(this)
         Haptics.init(this)
+        Passive.init(this)
+        Passive.register(this)
     }
 }
 
@@ -32,6 +35,8 @@ object Storage {
         prefs = ctx.getSharedPreferences("pt", Context.MODE_PRIVATE)
         dir = File(ctx.filesDir, "workouts").apply { mkdirs() }
         profile.value = loadProfile()
+        coach.value = parseCoach(prefs.getString("coach", null))
+        fontScale.value = prefs.getFloat("font", 1.15f)
         PhoneLink.sendProfile(appCtx)
     }
 
@@ -163,6 +168,45 @@ object Storage {
         } else {
             PhoneLink.sendProfile(appCtx)
         }
+    }
+
+    // ---------- Stress ----------
+
+    fun stressHistory(): List<StressRecord> = WorkoutJson.stressFromJson(prefs.getString("stress", null))
+
+    fun addStress(r: StressRecord) {
+        val list = (stressHistory() + r).sortedBy { it.time }.takeLast(60)
+        prefs.edit().putString("stress", WorkoutJson.stressToJson(list)).commit()
+        PhoneLink.sendProfile(appCtx)
+    }
+
+    // ---------- Readiness and plan from the phone's coach ----------
+
+    data class CoachInfo(val score: Int, val level: Int, val label: String, val headline: String, val plan: List<String>, val time: Long)
+
+    val coach = MutableStateFlow<CoachInfo?>(null)
+
+    fun saveCoach(json: String) {
+        prefs.edit().putString("coach", json).apply()
+        coach.value = parseCoach(json)
+    }
+
+    private fun parseCoach(json: String?): CoachInfo? = try {
+        val o = org.json.JSONObject(json ?: "")
+        val a = o.optJSONArray("plan")
+        CoachInfo(o.getInt("score"), o.getInt("level"), o.optString("label"), o.optString("headline"),
+            (0 until (a?.length() ?: 0)).map { a!!.getString(it) }, o.optLong("t"))
+    } catch (_: Exception) { null }
+
+    /** Today's coach info (older than 20 h is not shown). */
+    fun todayCoach(): CoachInfo? = coach.value?.takeIf { System.currentTimeMillis() - it.time < 20 * 3600_000L }
+
+    // ---------- Text size on the watch ----------
+
+    val fontScale = MutableStateFlow(1.15f)
+    fun setFontScale(v: Float) {
+        fontScale.value = v.coerceIn(1.0f, 1.45f)
+        prefs.edit().putFloat("font", fontScale.value).apply()
     }
 
     fun todayHrv(): HrvRecord? {
