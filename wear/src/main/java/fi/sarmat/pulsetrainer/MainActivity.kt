@@ -24,7 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.SwipeToDismissBox
-import androidx.wear.compose.material.rememberSwipeToDismissBoxState
+import androidx.wear.compose.foundation.rememberSwipeToDismissBoxState
 import fi.sarmat.pulsetrainer.core.WorkoutType
 import kotlinx.coroutines.flow.MutableSharedFlow
 
@@ -141,7 +141,7 @@ fun AppRoot() {
 @Composable
 private fun Dismissible(onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val state = rememberSwipeToDismissBoxState()
-    SwipeToDismissBox(state = state, onDismissed = onDismiss) { isBackground ->
+    SwipeToDismissBox(onDismissed = onDismiss, state = state) { isBackground: Boolean ->
         if (isBackground) Box(Modifier.fillMaxSize().background(Color.Black)) else content()
     }
 }
