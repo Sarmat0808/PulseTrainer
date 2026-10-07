@@ -105,6 +105,8 @@ object WorkoutEngine {
         fun watchBpm(): Int?
         /** Barometer/steps of the current segment (null when the sensor is off). */
         fun climb(): ClimbSensor?
+        /** «Location» is switched off in the watch settings. */
+        fun gpsOff(): Boolean
         fun resetReps()
         fun stopped()
     }
@@ -277,16 +279,25 @@ object WorkoutEngine {
         publish()
     }
 
-    fun onRep() {
+    /**
+     * Rep exercises (pull-ups, push-ups, squats): sets come from the reps themselves.
+     * 2 reps within 6 s start a set; 8 s without a rep ends it (at the last rep).
+     */
+    fun onRep(t: Long) {
         if (!running || paused || type.mode != Mode.SETS) return
         if (phase == Phase.REST) {
-            restReps++
-            if (restReps >= 3 && phaseSec >= 20) { startSet(System.currentTimeMillis() - 6000); reps = restReps; restReps = 0 }
+            if (t - lastRepT <= 6000) {
+                startSet(lastRepT - 1500)
+                reps = 2
+            }
+            lastRepT = t
             publish(); return
         }
         reps++
+        lastRepT = t
         publish()
     }
+    private var lastRepT = 0L
     private var restReps = 0
 
     fun adjustTreadSpeed(d: Double) {
@@ -382,7 +393,7 @@ object WorkoutEngine {
 
     fun onLocation(loc: Location) {
         if (!running || paused || !type.gps) return
-        if (loc.hasAccuracy() && loc.accuracy > 30f) { gpsFix = false; return }
+        if (loc.hasAccuracy() && loc.accuracy > 40f) { gpsFix = false; return }
         gpsFix = true
         val now = System.currentTimeMillis()
         moveWin.addLast(now to loc)
@@ -458,7 +469,7 @@ object WorkoutEngine {
         climbHist.clear()
         autoPauseOn = Storage.autoPause(t)
         kmAlertOn = Storage.kmAlert(t)
-        smooth.clear(); sHist.clear(); peakS = 0.0; troughS = 999.0; warmup = true; slowRests = 0; restReps = 0
+        smooth.clear(); sHist.clear(); peakS = 0.0; troughS = 999.0; warmup = true; slowRests = 0; lastRepT = 0L
         // Strength: start "resting" — the first set is detected by heart rate (no button needed).
         if (t.mode == Mode.SETS) { phase = Phase.REST; phaseSec = 0; setNo = 0 }
         hooks?.reconfigure(t)
@@ -513,7 +524,6 @@ object WorkoutEngine {
         phaseSec = ((now - e) / 1000).toInt()
         restPeak = max(setPeak, curHr ?: 0)
         troughS = 999.0
-        restReps = 0
         readyNotified = false; adviceGiven = false; advice = null; lastHrr60 = null
     }
 
@@ -562,7 +572,15 @@ object WorkoutEngine {
     }
 
     private fun tickSets(now: Long, cur: Int?) {
-        autoDetect(now, cur)
+        if (type.repCount) {
+            // Sets by reps, not by pulse.
+            if (phase == Phase.WORK) {
+                if (reps > 0 && now - lastRepT > 8000) endSet(lastRepT + 1000)
+                else if (reps == 0 && phaseSec > 25) { phase = Phase.REST; phaseSec = 0; setNo = (setNo - 1).coerceAtLeast(0) }
+            }
+            if (phase == Phase.WORK) { if (cur != null) setPeak = max(setPeak, cur); return }
+            if (warmup) return
+        } else autoDetect(now, cur)
         if (phase == Phase.WORK) {
             if (cur != null) setPeak = max(setPeak, cur)
             return
@@ -696,9 +714,10 @@ object WorkoutEngine {
         if (advice != null && type.mode != Mode.SETS && activeSec - adviceAt > 40) advice = null
         advice?.let { return it to 2 }
         if (autoPaused) return "Автопауза — начните движение" to 0
+        if (type.gps && !gpsFix) return (if (hooks?.gpsOff() == true) "Включите «Местоположение» в настройках часов" else "Поиск GPS… лучше на открытом месте") to 2
         return when (type.mode) {
             Mode.SETS -> when {
-                warmup && phase == Phase.REST -> "Разминка. Подходы отметятся сами по пульсу" to 0
+                warmup && phase == Phase.REST -> (if (type.repCount) "Начните — повторы и подходы посчитаются сами" else "Разминка. Подходы отметятся сами по пульсу") to 0
                 phase == Phase.WORK -> "Подход ${setNo}: ${fmtDurationShort(phaseSec)}" to 0
                 isRestReady(cur) -> "✓ Можно подход" + (lastHrr60?.let { " · пульс −$it за мин" } ?: "") to 1
                 else -> {

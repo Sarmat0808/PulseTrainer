@@ -59,9 +59,9 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
     override fun onCreate() {
         super.onCreate()
         watchHr = WatchHr(this)
-        exerciseHr = ExerciseHr(this)
+        exerciseHr = ExerciseHr(this) { loc -> WorkoutEngine.onLocation(loc) }
         climbSensor = ClimbSensor(this)
-        repCounter = RepCounter(this) { WorkoutEngine.onRep() }
+        repCounter = RepCounter(this) { t -> WorkoutEngine.onRep(t) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -71,7 +71,6 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
         WorkoutEngine.hooks = this
         HrSensor.connectSaved()
         watchHr.start()
-        exerciseHr.start(type)
         if (wake == null) {
             wake = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PulseTrainer:workout").apply { acquire(6 * 3600_000L) }
@@ -135,8 +134,9 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
     // ----- Hooks -----
 
     override fun reconfigure(type: WorkoutType) {
-        if (type.gps) startGps() else stopGps()
-        if (type.repCount) repCounter.start() else repCounter.stop()
+        exerciseHr.ensure(type)
+        if (type.gps) startGps()
+        if (type.repCount) repCounter.start(type) else repCounter.stop()
         if (type.climb || type.steps || type.gps) { climbSensor.start(); climbOn = true } else { climbSensor.stop(); climbOn = false }
         climbSensor.reset()
     }
@@ -171,6 +171,7 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
         try {
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this, Looper.getMainLooper())
             gpsOn = true
+            gpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
         } catch (_: Exception) {}
     }
 
@@ -180,12 +181,18 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
         gpsOn = false
     }
 
-    override fun onLocationChanged(location: Location) = WorkoutEngine.onLocation(location)
+    // Backup GPS: used only when Health Services sends no points (some firmware / no permission there).
+    override fun onLocationChanged(location: Location) {
+        if (android.os.SystemClock.elapsedRealtime() - exerciseHr.lastLocationAt > 10_000) WorkoutEngine.onLocation(location)
+    }
 
     @Deprecated("Deprecated in Java")
     override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-    override fun onProviderEnabled(provider: String) {}
-    override fun onProviderDisabled(provider: String) {}
+    override fun onProviderEnabled(provider: String) { gpsDisabled = false }
+    override fun onProviderDisabled(provider: String) { gpsDisabled = true }
+
+    override fun gpsOff(): Boolean = gpsDisabled
+    private var gpsDisabled = false
 
     override fun onDestroy() {
         if (WorkoutEngine.ui.value.running) WorkoutEngine.finish()

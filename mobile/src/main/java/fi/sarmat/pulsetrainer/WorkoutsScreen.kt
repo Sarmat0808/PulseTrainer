@@ -57,7 +57,7 @@ private val WORKOUT_MORE = setOf("health", "share")
 
 private val ru = Locale("ru")
 private val monthFmt = SimpleDateFormat("LLLL yyyy", ru)
-private val dayFmt = SimpleDateFormat("EE, d MMMM yyyy · HH:mm", ru)
+private val dayFmt = SimpleDateFormat("EE, d MMM yyyy · HH:mm", ru)
 
 private val Gold = Color(0xFFF2C94C)
 private val Badge = Color(0xFF2D6CDF)
@@ -144,12 +144,13 @@ private fun mainType(w: Workout): WorkoutType = w.segments.maxByOrNull { it.acti
 private fun OwnRow(w: Workout, r: Review.Result?, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(CardBg).clickable(onClick = onClick).padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
         SportIcon(mainType(w), 44.dp, Color.White, Badge)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(w.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            val name = if (w.segments.size <= 1) mainType(w).short else w.segments.joinToString(" → ") { it.type.short }
+            Text(name, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 2)
             Text(dayFmt.format(Date(w.start)), color = Dim, fontSize = 14.sp, maxLines = 1)
             val parts = listOfNotNull(
                 fmtDuration(w.activeSec),
@@ -158,13 +159,13 @@ private fun OwnRow(w: Workout, r: Review.Result?, onClick: () -> Unit) {
                 if (w.avgHr > 0) "♥ ${w.avgHr}" else null,
                 "${w.kcalTotal.toInt()} ккал",
             )
-            Text(parts.joinToString(" · "), color = Color.White, fontSize = 15.sp, maxLines = 1)
+            Text(parts.joinToString(" · "), color = Color.White, fontSize = 15.sp, maxLines = 2)
             ZoneBar(w.zoneSec)
-        }
-        Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp)) {
-            if (r != null) Text(r.label, fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End,
-                color = when (r.level) { 0 -> Good; 1 -> Warn; 2 -> Danger; else -> Dim })
-            if (w.track.size >= 2) Text("🗺 маршрут", color = Accent, fontSize = 13.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (r != null) Text(r.label, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
+                    color = when (r.level) { 0 -> Good; 1 -> Warn; 2 -> Danger; else -> Dim })
+                if (w.track.size >= 2) Text("🗺 маршрут", color = Accent, fontSize = 14.sp)
+            }
         }
     }
 }
@@ -178,12 +179,11 @@ private fun ExtRow(e: ExtWorkout) {
         SportIcon(guessType(e.title), 40.dp, Color.White, Color(0xFF3A4452))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(e.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(dayFmt.format(Date(e.start)), color = Dim, fontSize = 14.sp, maxLines = 1)
+            Text(e.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+            Text(dayFmt.format(Date(e.start)) + " · Samsung Health", color = Dim, fontSize = 14.sp, maxLines = 2)
             Text("${e.minutes} мин" + (e.avgHr?.let { " · ♥ $it" } ?: "") + " · нагрузка ${e.trimp.toInt()}" + if (e.estimated) " (оценка)" else "",
-                color = Dim, fontSize = 14.sp, maxLines = 1)
+                color = Dim, fontSize = 14.sp, maxLines = 2)
         }
-        Text("Samsung", color = Dim, fontSize = 12.sp)
     }
 }
 

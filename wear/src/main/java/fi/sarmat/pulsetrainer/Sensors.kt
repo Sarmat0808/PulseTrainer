@@ -81,41 +81,64 @@ class WatchHr(ctx: Context) : SensorEventListener {
 }
 
 /**
- * Repetition counter (beta) from wrist acceleration.
- * Smoothed movement magnitude + adaptive threshold with hysteresis and a minimum
- * time between reps. Pull-ups, push-ups and squats all move the wrist rhythmically.
- * The count can always be corrected with +/− on screen.
+ * Repetition counter from the wrist (pull-ups, push-ups, squats).
+ *
+ * Why the old one counted walking: it reacted to any rhythmic wrist movement. Now:
+ * - only movement ALONG GRAVITY counts (the body goes up and down; arm swings while walking are mostly sideways);
+ * - a rep needs a clear up-and-back cycle, with a minimum time per rep for the exercise
+ *   (pull-up ≥ 1.3 s, squat ≥ 1.1 s, push-up ≥ 0.9 s);
+ * - while you are walking (the step detector saw a step in the last 2.5 s) nothing is counted;
+ * - pull-ups and push-ups also need the forearm close to vertical (hanging on the bar / hands on the floor).
  */
-class RepCounter(ctx: Context, private val onRep: () -> Unit) : SensorEventListener {
+class RepCounter(ctx: Context, private val onRep: (Long) -> Unit) : SensorEventListener {
     private val sm = ctx.getSystemService(SensorManager::class.java)
-    private var smooth = 0.0
+    private val g = DoubleArray(3)
+    private var gInit = false
+    private var v = 0.0
     private var level = 1.0
     private var armed = true
     private var lastRep = 0L
+    private var lastStep = 0L
+    private var minGap = 1100L
+    private var needVertical = false
 
-    fun start() {
+    fun start(type: fi.sarmat.pulsetrainer.core.WorkoutType) {
         reset()
-        val s = sm?.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION) ?: return
-        sm.registerListener(this, s, SensorManager.SENSOR_DELAY_GAME)
+        minGap = when (type) {
+            fi.sarmat.pulsetrainer.core.WorkoutType.PULL_UPS -> 1300L
+            fi.sarmat.pulsetrainer.core.WorkoutType.PUSH_UPS -> 900L
+            else -> 1100L
+        }
+        needVertical = type == fi.sarmat.pulsetrainer.core.WorkoutType.PULL_UPS || type == fi.sarmat.pulsetrainer.core.WorkoutType.PUSH_UPS
+        sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        sm?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
+            try { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) } catch (_: SecurityException) {}
+        }
     }
 
     fun stop() { sm?.unregisterListener(this) }
 
-    fun reset() { smooth = 0.0; level = 1.0; armed = true; lastRep = 0L }
+    fun reset() { v = 0.0; level = 1.0; armed = true; lastRep = 0L; gInit = false }
 
     override fun onSensorChanged(e: SensorEvent) {
-        val (x, y, z) = Triple(e.values[0].toDouble(), e.values[1].toDouble(), e.values[2].toDouble())
-        val m = sqrt(x * x + y * y + z * z)
-        smooth += 0.25 * (m - smooth)
-        level += 0.01 * (smooth - level)          // slow average of activity
-        val hi = max(1.6, level * 1.7)
-        val lo = hi * 0.45
         val now = SystemClock.elapsedRealtime()
-        if (armed && smooth > hi && now - lastRep > 900) {
+        if (e.sensor.type == Sensor.TYPE_STEP_DETECTOR) { lastStep = now; return }
+        val a = e.values
+        if (!gInit) { g[0] = a[0].toDouble(); g[1] = a[1].toDouble(); g[2] = a[2].toDouble(); gInit = true; return }
+        for (i in 0..2) g[i] += 0.04 * (a[i] - g[i])            // slow low-pass = gravity
+        val gn = sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]).coerceAtLeast(1.0)
+        // motion along gravity (up/down), m/s²
+        val vert = ((a[0] - g[0]) * g[0] + (a[1] - g[1]) * g[1] + (a[2] - g[2]) * g[2]) / gn
+        v += 0.2 * (vert - v)
+        level += 0.01 * (kotlin.math.abs(v) - level)
+        if (now - lastStep < 2500) { armed = true; return }      // walking: not reps
+        if (needVertical && kotlin.math.abs(g[0]) / gn < 0.7) { armed = true; return } // forearm not vertical
+        val hi = max(1.2, level * 1.8)
+        if (armed && v > hi && now - lastRep > minGap) {
             armed = false
             lastRep = now
-            onRep()
-        } else if (!armed && smooth < lo) {
+            onRep(System.currentTimeMillis())
+        } else if (!armed && v < -hi * 0.4) {
             armed = true
         }
     }
@@ -146,22 +169,42 @@ object Haptics {
 }
 
 /**
- * Watch heart rate during a workout via Health Services *exercise* mode.
- * Unlike the measure client and the raw sensor, an active exercise keeps delivering
- * heart rate when the app is in the background (watch face shown, a call answered, the
- * screen off), because the system itself keeps the sensor running for the workout.
+ * Health Services *exercise* mode — the same engine Samsung Health uses for workouts:
+ * - heart rate keeps flowing in the background (watch face shown, a call answered, screen off);
+ * - GPS points come from the system's own GPS handling (power-optimised, works when the
+ *   app is not on screen). They are passed to the workout engine for distance, pace, laps and auto-pause.
+ * GPS is switched on only when a GPS exercise starts and then stays on for the rest of the session
+ * (so walking → pull-ups → walking does not lose the fix).
  */
-class ExerciseHr(private val ctx: Context) {
+class ExerciseHr(private val ctx: Context, private val onLocation: (android.location.Location) -> Unit) {
     private val client = try { HealthServices.getClient(ctx).exerciseClient } catch (_: Throwable) { null }
     @Volatile private var bpm: Int? = null
     @Volatile private var at = 0L
+    @Volatile var lastLocationAt = 0L; private set
     private var active = false
+    private var gpsOn = false
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     private val callback = object : androidx.health.services.client.ExerciseUpdateCallback {
         override fun onExerciseUpdateReceived(update: androidx.health.services.client.data.ExerciseUpdate) {
-            val v = update.latestMetrics.getData(DataType.HEART_RATE_BPM).lastOrNull()?.value ?: return
-            val r = v.roundToInt()
-            if (r in 30..230) { bpm = r; at = SystemClock.elapsedRealtime() }
+            update.latestMetrics.getData(DataType.HEART_RATE_BPM).lastOrNull()?.value?.let {
+                val r = it.roundToInt()
+                if (r in 30..230) { bpm = r; at = SystemClock.elapsedRealtime() }
+            }
+            val boot = Passive.bootInstant()
+            update.latestMetrics.getData(DataType.LOCATION).forEach { p ->
+                val d = p.value
+                val loc = android.location.Location("exercise").apply {
+                    latitude = d.latitude; longitude = d.longitude
+                    if (!d.altitude.isNaN()) altitude = d.altitude
+                    time = p.getTimeInstant(boot).toEpochMilli()
+                    elapsedRealtimeNanos = p.timeDurationFromBoot.toNanos()
+                    val acc = (p.accuracy as? androidx.health.services.client.data.LocationAccuracy)?.horizontalPositionErrorMeters
+                    accuracy = (acc ?: 10.0).toFloat()
+                }
+                lastLocationAt = SystemClock.elapsedRealtime()
+                main.post { onLocation(loc) }
+            }
         }
         override fun onLapSummaryReceived(lapSummary: androidx.health.services.client.data.ExerciseLapSummary) {}
         override fun onRegistered() {}
@@ -169,28 +212,53 @@ class ExerciseHr(private val ctx: Context) {
         override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) {}
     }
 
-    fun start(type: fi.sarmat.pulsetrainer.core.WorkoutType) {
+    /** Start (or upgrade to GPS) for this exercise. */
+    fun ensure(type: fi.sarmat.pulsetrainer.core.WorkoutType) {
         val c = client ?: return
-        if (active) return
-        try {
-            c.setUpdateCallback(callback)
-            val config = androidx.health.services.client.data.ExerciseConfig(
-                exerciseType = exType(type),
-                dataTypes = setOf(DataType.HEART_RATE_BPM),
-                isAutoPauseAndResumeEnabled = false,
-                isGpsEnabled = false,
-            )
-            c.startExerciseAsync(config)
-            active = true
-        } catch (_: Throwable) {}
+        val wantGps = type.gps || gpsOn
+        if (active && (gpsOn || !wantGps)) return
+        val start = {
+            try {
+                val et = exType(type)
+                val caps = c.getCapabilitiesAsync()
+                caps.addListener({
+                    try {
+                        val supported = try { caps.get().getExerciseTypeCapabilities(et).supportedDataTypes } catch (_: Throwable) { emptySet() }
+                        val gps = wantGps && DataType.LOCATION in supported && hasLocationPermission()
+                        val types = HashSet<DataType<*, *>>()
+                        if (DataType.HEART_RATE_BPM in supported || supported.isEmpty()) types.add(DataType.HEART_RATE_BPM)
+                        if (gps) types.add(DataType.LOCATION)
+                        c.setUpdateCallback(callback)
+                        c.startExerciseAsync(
+                            androidx.health.services.client.data.ExerciseConfig(
+                                exerciseType = et, dataTypes = types,
+                                isAutoPauseAndResumeEnabled = false, isGpsEnabled = gps,
+                            )
+                        )
+                        active = true; gpsOn = gps
+                    } catch (_: Throwable) {}
+                }, ContextCompat_mainExecutor(ctx))
+            } catch (_: Throwable) {}
+        }
+        if (active) {
+            // Restart with GPS.
+            try {
+                val f = c.endExerciseAsync()
+                f.addListener({ active = false; start() }, ContextCompat_mainExecutor(ctx))
+            } catch (_: Throwable) { start() }
+        } else start()
     }
+
+    private fun hasLocationPermission() = androidx.core.content.ContextCompat.checkSelfPermission(
+        ctx, android.Manifest.permission.ACCESS_FINE_LOCATION
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     fun stop() {
         val c = client ?: return
         if (!active) return
         try { c.endExerciseAsync() } catch (_: Throwable) {}
         try { c.clearUpdateCallbackAsync(callback) } catch (_: Throwable) {}
-        active = false
+        active = false; gpsOn = false
         bpm = null
     }
 
@@ -199,7 +267,7 @@ class ExerciseHr(private val ctx: Context) {
     private fun exType(t: fi.sarmat.pulsetrainer.core.WorkoutType): androidx.health.services.client.data.ExerciseType {
         val E = androidx.health.services.client.data.ExerciseType
         return when (t) {
-            fi.sarmat.pulsetrainer.core.WorkoutType.WALK -> E.WALKING
+            fi.sarmat.pulsetrainer.core.WorkoutType.WALK, fi.sarmat.pulsetrainer.core.WorkoutType.STAIRS_OUTDOOR -> E.WALKING
             fi.sarmat.pulsetrainer.core.WorkoutType.RUN -> E.RUNNING
             fi.sarmat.pulsetrainer.core.WorkoutType.TREADMILL -> E.RUNNING_TREADMILL
             fi.sarmat.pulsetrainer.core.WorkoutType.BIKE_OUTDOOR -> E.BIKING
@@ -207,10 +275,12 @@ class ExerciseHr(private val ctx: Context) {
             fi.sarmat.pulsetrainer.core.WorkoutType.ELLIPTICAL -> E.ELLIPTICAL
             fi.sarmat.pulsetrainer.core.WorkoutType.BOXING -> E.BOXING
             fi.sarmat.pulsetrainer.core.WorkoutType.HIKING -> E.HIKING
-            else -> E.STRENGTH_TRAINING
+            else -> if (t.gps) E.WALKING else E.STRENGTH_TRAINING
         }
     }
 }
+
+private fun ContextCompat_mainExecutor(ctx: Context) = androidx.core.content.ContextCompat.getMainExecutor(ctx)
 
 /**
  * Barometer + step counter for climbing workouts and walking/running.

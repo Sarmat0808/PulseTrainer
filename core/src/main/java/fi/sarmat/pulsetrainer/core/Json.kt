@@ -122,7 +122,8 @@ object WorkoutJson {
             track = track,
             segments = segments,
             zoneBounds = (o.optJSONArray("zoneBounds") ?: JSONArray()).ints(),
-            recoveryHours = o.optInt("recoveryHours"),
+            // Always recomputed with the current rules (older versions over-estimated light sessions).
+            recoveryHours = Physiology.recoveryHours(segments),
             syncedToHealth = o.optBoolean("synced"),
         )
     }

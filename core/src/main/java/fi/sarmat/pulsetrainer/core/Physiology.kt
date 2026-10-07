@@ -100,8 +100,8 @@ object Physiology {
             else -> 72
         }
         val muscle = when {
-            strengthSets == 0 -> 0
-            strengthSets < 6 -> 24
+            strengthSets < 3 -> 0      // one or two sets do not need recovery
+            strengthSets < 6 -> 12
             strengthSets < 16 -> 48
             else -> 72
         }

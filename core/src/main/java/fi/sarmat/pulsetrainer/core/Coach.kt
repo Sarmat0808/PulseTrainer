@@ -217,8 +217,8 @@ object Coach {
         val last = workouts.maxByOrNull { it.end }
         val hoursSince = last?.let { (now - it.end) / 3600_000.0 }
         if (last != null && hoursSince != null) {
-            val left = last.recoveryHours - hoursSince
-            if (left > 0) factors += Factor("После «${last.title}» прошло ${hoursSince.roundToInt()} ч из ~${last.recoveryHours} ч восстановления", -minOf(20, (left / 2).roundToInt() + 5), "load")
+            val left = Physiology.recoveryHours(last.segments) - hoursSince
+            if (left > 0) factors += Factor("После «${last.title}» прошло ${hoursSince.roundToInt()} ч из ~${Physiology.recoveryHours(last.segments)} ч восстановления", -minOf(20, (left / 2).roundToInt() + 5), "load")
         }
         extNew.filter { it.trimp >= 80 && it.end > (last?.end ?: 0L) && now - it.end < 24 * 3600_000L }.maxByOrNull { it.end }?.let { e ->
             factors += Factor("Вчера/сегодня: «${e.title}» ${e.minutes} мин — организм ещё восстанавливается", -8, "load")
@@ -245,7 +245,7 @@ object Coach {
         var score = (100 - lost).coerceIn(0, 100)
         // Without enough data the app must not claim "excellent readiness".
         if (confidence <= 2) score = minOf(score, 74)
-        var level = when { score >= 75 -> 0; score >= 50 -> 1; else -> 2 }
+        var level = when { score >= 75 -> 0; score >= 40 -> 1; else -> 2 }
         if (checkIn != null && checkIn.feel <= 2 && level == 0) level = 1
         if (checkIn != null && checkIn.feel == 1) level = maxOf(level, 1)
         val reasons = factors.sortedBy { it.points }.map { (if (it.points < 0) "▼ " else "• ") + it.text }

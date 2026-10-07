@@ -210,11 +210,17 @@ fun PhoneRoot(openId: MutableState<String?>) {
                     )
                 }
             }
-            NavigationBar(containerColor = CardBg) {
-                val labels = listOf("◎" to "Сегодня", "★" to "Тренер", "🍽" to "Еда", "♥" to "Тренировки")
-                labels.forEachIndexed { i, (ic, l) ->
-                    NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(ic, fontSize = 20.sp) },
-                        label = { Text(l, maxLines = 1, softWrap = false, fontSize = 13.sp) })
+            // The bar keeps its size independent of the app text scale, so «Тренировки» always fits.
+            val dens = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dens.density, 1f)
+            ) {
+                NavigationBar(containerColor = CardBg) {
+                    val labels = listOf("◎" to "Сегодня", "★" to "Тренер", "🍽" to "Еда", "♥" to "Тренировки")
+                    labels.forEachIndexed { i, (ic, l) ->
+                        NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(ic, fontSize = 22.sp) },
+                            label = { Text(l, maxLines = 1, softWrap = false, fontSize = 13.sp, fontWeight = FontWeight.Bold) })
+                    }
                 }
             }
         }
@@ -400,6 +406,21 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
             Text(dateFmt.format(Date(w.start)) + " · " + w.hrSource, color = Dim, fontSize = 15.sp)
         }
         item { ReviewSection(w) }
+        if (w.track.size >= 2) item {
+            Section {
+                Text("Маршрут · ${fmtKm(w.distanceM)} км", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                RouteMap(w)
+                Text("Цвет линии — зона пульса. Цифры — километры. Двумя пальцами — масштаб.", color = Dim, fontSize = 14.sp)
+                val laps = w.segments.flatMap { it.laps }
+                if (laps.isNotEmpty()) Expander("Круги по километрам (${laps.size})") {
+                    laps.forEachIndexed { n, l ->
+                        val sec = ((l.end - l.start) / 1000).toInt()
+                        val pace = if (l.distanceM > 0) (sec / (l.distanceM / 1000.0)).toInt() else null
+                        VRow("Км ${n + 1}", "${fmtPace(pace)} /км", "${l.distanceM.toInt()} м · ${fmtDuration(sec)}")
+                    }
+                }
+            }
+        }
         item {
             Section {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -457,12 +478,6 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
                         Text("Круг ${n + 1}: ${l.distanceM.toInt()} м · ${fmtDuration(sec)} · ${fmtPace(pace)} /км", color = Color.White, fontSize = 15.sp)
                     }
                 }
-            }
-        }
-        if (w.track.size >= 2) item {
-            Section {
-                Text("Маршрут", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                RouteCanvas(w)
             }
         }
         item {
