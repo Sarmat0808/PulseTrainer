@@ -33,6 +33,21 @@ data class DailyStats(
     val bodyFatPct: Double? = null,
     /** Minutes of workouts recorded by other apps (e.g. Samsung Health itself). */
     val otherWorkoutMin: Int? = null,
+    val activeKcal: Double? = null,
+    val distanceM: Double? = null,
+    val floors: Double? = null,
+    val hydrationMl: Int? = null,
+    val hrMin: Int? = null,
+    val hrMax: Int? = null,
+    val hrAvg: Int? = null,
+    val respRate: Double? = null,
+    val bpSys: Int? = null,
+    val bpDia: Int? = null,
+    val vo2max: Double? = null,
+    val leanKg: Double? = null,
+    /** Sleep start/end (epoch millis) of the main night. */
+    val sleepStart: Long? = null,
+    val sleepEnd: Long? = null,
 )
 
 data class WeightEntry(val time: Long, val kg: Double)

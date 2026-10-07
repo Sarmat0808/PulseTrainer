@@ -62,6 +62,7 @@ dependencies {
     implementation("androidx.wear.compose:compose-foundation:1.3.1")
     implementation("androidx.wear:wear-ongoing:1.0.0")
     implementation("androidx.health:health-services-client:1.0.0-beta03")
+    implementation("com.google.guava:guava:32.1.3-android")
 
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

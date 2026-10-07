@@ -176,21 +176,29 @@ fun PhoneRoot(openId: MutableState<String?>) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             when (tab) {
-                0 -> CoachScreen(
+                0 -> TodayScreen(
+                    needAccess = !granted.containsAll(HealthData.READ_PERMISSIONS),
+                    onGrant = requestHc,
+                    onRefresh = { scope.launch { PhoneStore.refreshDays(ctx) } },
+                    openTab = { tab = it },
+                    openWorkout = { openId.value = it },
+                )
+                1 -> CoachScreen(
                     needAccess = !granted.containsAll(HealthData.READ_PERMISSIONS),
                     onGrant = requestHc,
                     onRefresh = { scope.launch { PhoneStore.refreshDays(ctx) } },
                 )
-                1 -> NutritionScreen()
-                2 -> WorkoutsTab(workouts, hcStatus, granted, requestHc, onSync = { scope.launch { syncPending() } }, open = { openId.value = it })
+                2 -> NutritionScreen()
+                3 -> WorkoutsTab(workouts, hcStatus, granted, requestHc, onSync = { scope.launch { syncPending() } }, open = { openId.value = it })
                 else -> ProfileTab()
             }
         }
         NavigationBar(containerColor = CardBg) {
-            NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("★", fontSize = 18.sp) }, label = { Text("Тренер") })
-            NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("🍽", fontSize = 18.sp) }, label = { Text("Питание") })
-            NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("♥", fontSize = 18.sp) }, label = { Text("Тренировки") })
-            NavigationBarItem(selected = tab == 3, onClick = { tab = 3 }, icon = { Text("◉", fontSize = 18.sp) }, label = { Text("Профиль") })
+            val labels = listOf("◎" to "Сегодня", "★" to "Тренер", "🍽" to "Еда", "♥" to "Спорт", "◉" to "Профиль")
+            labels.forEachIndexed { i, (ic, l) ->
+                NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(ic, fontSize = 18.sp) },
+                    label = { Text(l, maxLines = 1, softWrap = false) })
+            }
         }
     }
 }

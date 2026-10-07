@@ -3,7 +3,16 @@ package fi.sarmat.pulsetrainer
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.BodyFatRecord
+import androidx.health.connect.client.records.DistanceRecord
+import androidx.health.connect.client.records.FloorsClimbedRecord
+import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.HydrationRecord
+import androidx.health.connect.client.records.LeanBodyMassRecord
+import androidx.health.connect.client.records.RespiratoryRateRecord
+import androidx.health.connect.client.records.Vo2MaxRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
@@ -39,6 +48,15 @@ object HealthData {
         HealthPermission.getReadPermission(WeightRecord::class),
         HealthPermission.getReadPermission(BodyFatRecord::class),
         HealthPermission.getReadPermission(ExerciseSessionRecord::class),
+        HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(DistanceRecord::class),
+        HealthPermission.getReadPermission(FloorsClimbedRecord::class),
+        HealthPermission.getReadPermission(HydrationRecord::class),
+        HealthPermission.getReadPermission(HeartRateRecord::class),
+        HealthPermission.getReadPermission(RespiratoryRateRecord::class),
+        HealthPermission.getReadPermission(BloodPressureRecord::class),
+        HealthPermission.getReadPermission(Vo2MaxRecord::class),
+        HealthPermission.getReadPermission(LeanBodyMassRecord::class),
     )
     val WRITE_WEIGHT: String = HealthPermission.getWritePermission(WeightRecord::class)
 
@@ -99,8 +117,11 @@ object HealthData {
                         }
                     }
                 }
+                val main = list.maxByOrNull { it.endTime.toEpochMilli() - it.startTime.toEpochMilli() }
                 upd(day) {
                     it.copy(
+                        sleepStart = main?.startTime?.toEpochMilli(),
+                        sleepEnd = main?.endTime?.toEpochMilli(),
                         sleepMin = total.toInt(),
                         deepMin = if (hasStages) deep.toInt() else null,
                         remMin = if (hasStages) rem.toInt() else null,
@@ -143,6 +164,63 @@ object HealthData {
                     upd(day) { it.copy(otherWorkoutMin = l.sumOf { r -> (r.endTime.toEpochMilli() - r.startTime.toEpochMilli()) / 60000 }.toInt()) }
                 }
         }
+        fun has(k: KClass<out Record>) = HealthPermission.getReadPermission(k) in granted
+        if (has(RespiratoryRateRecord::class)) {
+            read(c, RespiratoryRateRecord::class, from, to).groupBy { dayStart(it.time) }.forEach { (day, l) ->
+                upd(day) { it.copy(respRate = l.map { r -> r.rate }.average()) }
+            }
+        }
+        if (has(BloodPressureRecord::class)) {
+            read(c, BloodPressureRecord::class, from, to).groupBy { dayStart(it.time) }.forEach { (day, l) ->
+                val last = l.maxBy { r -> r.time }
+                upd(day) { it.copy(bpSys = last.systolic.inMillimetersOfMercury.toInt(), bpDia = last.diastolic.inMillimetersOfMercury.toInt()) }
+            }
+        }
+        if (has(Vo2MaxRecord::class)) {
+            read(c, Vo2MaxRecord::class, from, to).groupBy { dayStart(it.time) }.forEach { (day, l) ->
+                upd(day) { it.copy(vo2max = l.maxBy { r -> r.time }.vo2MillilitersPerMinuteKilogram) }
+            }
+        }
+        if (has(LeanBodyMassRecord::class)) {
+            read(c, LeanBodyMassRecord::class, from, to).groupBy { dayStart(it.time) }.forEach { (day, l) ->
+                upd(day) { it.copy(leanKg = l.maxBy { r -> r.time }.mass.inKilograms) }
+            }
+        }
+        // Daily totals (Health Connect removes duplicates between apps).
+        try {
+            val metrics = buildSet {
+                if (has(ActiveCaloriesBurnedRecord::class)) add(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)
+                if (has(DistanceRecord::class)) add(DistanceRecord.DISTANCE_TOTAL)
+                if (has(FloorsClimbedRecord::class)) add(FloorsClimbedRecord.FLOORS_CLIMBED_TOTAL)
+                if (has(HydrationRecord::class)) add(HydrationRecord.VOLUME_TOTAL)
+                if (has(HeartRateRecord::class)) { add(HeartRateRecord.BPM_MIN); add(HeartRateRecord.BPM_MAX); add(HeartRateRecord.BPM_AVG) }
+            }
+            if (metrics.isNotEmpty()) {
+                val res = c.aggregateGroupByPeriod(
+                    AggregateGroupByPeriodRequest(
+                        metrics = metrics,
+                        timeRangeFilter = TimeRangeFilter.between(fromDate.atStartOfDay(), java.time.LocalDateTime.now()),
+                        timeRangeSlicer = Period.ofDays(1),
+                    )
+                )
+                res.forEach { g ->
+                    val day = g.startTime.atZone(zone).toInstant().toEpochMilli()
+                    val r = g.result
+                    upd(day) {
+                        it.copy(
+                            activeKcal = r[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories ?: it.activeKcal,
+                            distanceM = r[DistanceRecord.DISTANCE_TOTAL]?.inMeters ?: it.distanceM,
+                            floors = r[FloorsClimbedRecord.FLOORS_CLIMBED_TOTAL] ?: it.floors,
+                            hydrationMl = r[HydrationRecord.VOLUME_TOTAL]?.inMilliliters?.toInt() ?: it.hydrationMl,
+                            hrMin = r[HeartRateRecord.BPM_MIN]?.toInt() ?: it.hrMin,
+                            hrMax = r[HeartRateRecord.BPM_MAX]?.toInt() ?: it.hrMax,
+                            hrAvg = r[HeartRateRecord.BPM_AVG]?.toInt() ?: it.hrAvg,
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
         if (HealthPermission.getReadPermission(StepsRecord::class) in granted) {
             try {
                 val res = c.aggregateGroupByPeriod(
