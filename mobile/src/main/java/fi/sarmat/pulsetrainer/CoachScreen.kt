@@ -58,12 +58,13 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
     val workouts by PhoneStore.workouts.collectAsState()
     val tests by PhoneStore.hrv.collectAsState()
     val weights by PhoneStore.weights.collectAsState()
+    val body by PhoneStore.body.collectAsState()
     val p = profile ?: Profile()
 
     val todayKey = days.lastOrNull()?.day
     val today = days.lastOrNull()
-    val advice = remember(p, goal, days, workouts, tests, weights) {
-        Coach.advise(p, goal, today, days, workouts, tests, weights)
+    val advice = remember(p, goal, days, workouts, tests, weights, body) {
+        Coach.advise(p, goal, today, days, workouts, tests, weights, body)
     }
     val color = when (advice.level) { 0 -> Good; 1 -> Warn; else -> Danger }
 
@@ -86,15 +87,18 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
                     Column(Modifier.padding(start = 14.dp).weight(1f)) {
                         Text(Coach.levelText(advice.level), color = color, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Text(advice.headline, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text(advice.type.title, color = Accent, fontSize = 13.sp)
                     }
                 }
                 advice.plan.forEach { Bullet(it, Color.White) }
+                Text("🕒 " + advice.whenText, color = Color.White, fontSize = 13.sp)
                 if (advice.reasons.isNotEmpty()) {
                     Text("Почему:", color = Dim, fontSize = 12.sp)
                     advice.reasons.forEach { Bullet(it, Dim, 13) }
                 }
             }
         }
+        item { SyncCard(needAccess, days) }
         item { SleepCard(today) }
         item { StatsCard(days, p) }
         item {
@@ -293,6 +297,8 @@ fun ProfileTab() {
                 if (stored == null) Text("Профиль ещё не пришёл с часов — откройте PulseTrainer на часах.", color = Warn, fontSize = 12.sp)
             }
         }
+        item { BodyCard() }
+        item { RemindersCard() }
         item {
             Section {
                 Text("История веса", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -321,5 +327,147 @@ private fun Stepper(label: String, value: String, step: Double, onDelta: (Double
 private fun SmallBtn(t: String, onClick: () -> Unit) {
     Box(Modifier.size(38.dp).clip(CircleShape).background(Color(0xFF2A3038)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Text(t, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+
+// ======================= Sync status =======================
+
+@Composable
+fun SyncCard(needAccess: Boolean, days: List<fi.sarmat.pulsetrainer.core.DailyStats>) {
+    val watch by PhoneStore.lastWatchContact.collectAsState()
+    val lastRx by PhoneStore.lastWorkoutReceived.collectAsState()
+    val live by PhoneStore.live.collectAsState()
+    val now = System.currentTimeMillis()
+    fun ago(t: Long): String {
+        val m = (now - t) / 60000
+        return when { m < 2 -> "только что"; m < 60 -> "$m мин назад"; m < 48 * 60 -> "${m / 60} ч назад"; else -> "${m / 1440} дн назад" }
+    }
+    val lastData = days.lastOrNull { it.sleepMin != null || it.steps != null || it.restHr != null }
+    Section {
+        Text("Синхронизация", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("Часы → (Bluetooth) → PulseTrainer на телефоне → Health Connect ⇄ Samsung Health", color = Dim, fontSize = 12.sp)
+        SyncLine(watch > 0 && now - watch < 3 * 86400_000L, "Часы PulseTrainer",
+            if (watch > 0) "на связи ${ago(watch)}" else "ещё не было связи — откройте приложение на часах")
+        live?.takeIf { now - it.time < 15_000 }?.let {
+            SyncLine(it.sensor == "H10", "Polar H10", if (it.sensor == "H10") "пульс идёт с ремня" else "пульс с часов — проверьте ремень")
+        }
+        SyncLine(lastRx > 0, "Тренировки с часов", if (lastRx > 0) "последняя получена ${ago(lastRx)}" else "пока не было")
+        SyncLine(!needAccess, "Health Connect", if (needAccess) "нужен доступ — нажмите «Разрешить» выше" else "доступ есть")
+        SyncLine(lastData != null, "Данные Samsung Health",
+            if (lastData != null) "сон/шаги/пульс покоя до ${SimpleDateFormat("d MMM", Locale("ru")).format(Date(lastData.day))}"
+            else "нет — включите синхронизацию Samsung Health с Health Connect")
+    }
+}
+
+@Composable
+private fun SyncLine(ok: Boolean, title: String, sub: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(if (ok) "✓" else "!", color = if (ok) Good else Warn, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 10.dp))
+        Column {
+            Text(title, color = Color.White, fontSize = 14.sp)
+            Text(sub, color = Dim, fontSize = 12.sp)
+        }
+    }
+}
+
+
+// ======================= Body measurements =======================
+
+@Composable
+private fun BodyCard() {
+    val entries by PhoneStore.body.collectAsState()
+    var weight by remember { mutableStateOf("") }
+    var waist by remember { mutableStateOf("") }
+    var chest by remember { mutableStateOf("") }
+    var arm by remember { mutableStateOf("") }
+    var thigh by remember { mutableStateOf("") }
+    var fat by remember { mutableStateOf("") }
+    fun num(s: String) = s.replace(',', '.').toDoubleOrNull()
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    Section {
+        Text("Замеры тела", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("Раз в 1–2 недели, утром. По талии тренер отличит рост мышц от жира.", color = Dim, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumField("Вес, кг", weight, Modifier.weight(1f)) { weight = it }
+            NumField("Талия, см", waist, Modifier.weight(1f)) { waist = it }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumField("Грудь, см", chest, Modifier.weight(1f)) { chest = it }
+            NumField("Бицепс, см", arm, Modifier.weight(1f)) { arm = it }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumField("Бедро, см", thigh, Modifier.weight(1f)) { thigh = it }
+            NumField("Жир, %", fat, Modifier.weight(1f)) { fat = it }
+        }
+        Button(
+            onClick = {
+                val e = fi.sarmat.pulsetrainer.core.BodyEntry(System.currentTimeMillis(), num(weight), num(waist), num(chest), num(arm), num(thigh), num(fat))
+                if (listOf(e.weightKg, e.waistCm, e.chestCm, e.armCm, e.thighCm, e.bodyFatPct).all { it == null }) {
+                    Toast.makeText(ctx, "Введите хотя бы одно значение", Toast.LENGTH_SHORT).show()
+                } else {
+                    PhoneStore.addBody(e)
+                    e.weightKg?.let { w ->
+                        scope.launch { PhoneStore.profile.value?.let { p -> PhoneStore.updateProfile(ctx, p.copy(weightKg = w)) } }
+                    }
+                    weight = ""; waist = ""; chest = ""; arm = ""; thigh = ""; fat = ""
+                    Toast.makeText(ctx, "Замер сохранён", Toast.LENGTH_SHORT).show()
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Сохранить замер") }
+        entries.takeLast(6).reversed().forEach { e ->
+            val parts = listOfNotNull(
+                e.weightKg?.let { "вес %.1f".format(it) }, e.waistCm?.let { "талия %.1f".format(it) }, e.chestCm?.let { "грудь %.1f".format(it) },
+                e.armCm?.let { "бицепс %.1f".format(it) }, e.thighCm?.let { "бедро %.1f".format(it) }, e.bodyFatPct?.let { "жир %.1f%%".format(it) },
+            )
+            Text("${dFmt.format(Date(e.time))}: " + parts.joinToString(", "), color = Color.White, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun NumField(label: String, value: String, modifier: Modifier, onChange: (String) -> Unit) {
+    androidx.compose.material3.OutlinedTextField(
+        value = value,
+        onValueChange = { v -> onChange(v.filter { it.isDigit() || it == '.' || it == ',' }.take(6)) },
+        label = { Text(label, fontSize = 12.sp) },
+        singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+        modifier = modifier,
+    )
+}
+
+// ======================= Reminders =======================
+
+@Composable
+private fun RemindersCard() {
+    val ctx = LocalContext.current
+    var morning by remember { mutableStateOf(PhoneStore.remindMorning) }
+    var evening by remember { mutableStateOf(PhoneStore.remindEvening) }
+    var hour by remember { mutableStateOf(PhoneStore.remindMorningHour) }
+    fun apply() {
+        PhoneStore.remindMorning = morning; PhoneStore.remindEvening = evening; PhoneStore.remindMorningHour = hour
+        Reminders.schedule(ctx, keep = false)
+    }
+    Section {
+        Text("Напоминания тренера", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Toggle("Утром: план на день (силовая, кардио, прогулка или отдых)", morning) { morning = it; apply() }
+        if (morning) Stepper("Время утреннего совета", "%02d:00".format(hour), 1.0) { d -> hour = (hour + d.toInt() + 24) % 24; apply() }
+        Toggle("Вечером (${Reminders.EVENING_HOUR}:00): напомнить, если тренировки ещё не было", evening) { evening = it; apply() }
+        OutlinedButton(onClick = {
+            val a = Reminders.advice()
+            Reminders.notify(ctx, 101, "Тренер: ${a.headline}", listOf("Готовность ${a.score}/100") + a.plan.take(3) + a.whenText)
+        }) { Text("Показать совет сейчас") }
+    }
+}
+
+@Composable
+private fun Toggle(text: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(vertical = 4.dp)) {
+        Text(text, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        androidx.compose.material3.Switch(checked = on, onCheckedChange = onChange)
     }
 }

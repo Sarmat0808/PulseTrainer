@@ -45,6 +45,12 @@ object Share {
         val ws = JSONArray()
         PhoneStore.weights.value.forEach { ws.put(JSONObject().put("t", it.time).put("kg", it.kg)) }
         o.put("weight_log", ws)
+        val body = JSONArray()
+        PhoneStore.body.value.forEach {
+            body.put(JSONObject().put("t", it.time).put("weight_kg", it.weightKg).put("waist_cm", it.waistCm).put("chest_cm", it.chestCm)
+                .put("arm_cm", it.armCm).put("thigh_cm", it.thighCm).put("body_fat_pct", it.bodyFatPct))
+        }
+        o.put("body_measurements", body)
         return o.toString(1)
     }
 
@@ -69,7 +75,8 @@ object Share {
     fun period(ctx: Context, days: Int, withFiles: Boolean) {
         val from = System.currentTimeMillis() - days * 86400_000L
         val list = PhoneStore.workouts.value.filter { it.start >= from }.sortedBy { it.start }
-        val text = Report.periodText(list, days, PhoneStore.profile.value, PhoneStore.hrv.value, PhoneStore.days.value, PhoneStore.goal.value, PhoneStore.weights.value)
+        val text = Report.periodText(list, days, PhoneStore.profile.value, PhoneStore.hrv.value, PhoneStore.days.value, PhoneStore.goal.value, PhoneStore.weights.value) +
+            bodyText(from)
         if (!withFiles) { sendText(ctx, "PulseTrainer: $days дней", text); return }
         val dir = shareDir(ctx)
         val base = "pulsetrainer_${days}d_${stamp(System.currentTimeMillis())}"
@@ -82,6 +89,16 @@ object Share {
             File(dir, "${base}_full.json").apply { writeText(allJson(list)) },
         )
         send(ctx, "PulseTrainer: $days дней", text, files)
+    }
+
+    private fun bodyText(from: Long): String {
+        val list = PhoneStore.body.value.filter { it.time >= from - 60 * 86400_000L }
+        if (list.isEmpty()) return ""
+        val f = SimpleDateFormat("dd.MM.yyyy", Locale("ru"))
+        val sb = StringBuilder("\n## Замеры тела\n| Дата | Вес | Талия | Грудь | Бицепс | Бедро | Жир % |\n|---|---|---|---|---|---|---|\n")
+        fun v(x: Double?) = x?.let { "%.1f".format(Locale.US, it) } ?: "—"
+        list.forEach { sb.append("| ${f.format(Date(it.time))} | ${v(it.weightKg)} | ${v(it.waistCm)} | ${v(it.chestCm)} | ${v(it.armCm)} | ${v(it.thighCm)} | ${v(it.bodyFatPct)} |\n") }
+        return sb.toString()
     }
 
     private fun clip(text: String) = if (text.length <= MAX_TEXT) text

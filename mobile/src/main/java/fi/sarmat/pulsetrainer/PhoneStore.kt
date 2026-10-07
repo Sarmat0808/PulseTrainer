@@ -16,6 +16,7 @@ import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
+import fi.sarmat.pulsetrainer.core.BodyEntry
 import fi.sarmat.pulsetrainer.core.DailyStats
 import fi.sarmat.pulsetrainer.core.Goal
 import fi.sarmat.pulsetrainer.core.HrvRecord
@@ -35,6 +36,7 @@ class PhoneApp : Application() {
     override fun onCreate() {
         super.onCreate()
         PhoneStore.init(this)
+        try { Reminders.schedule(this, keep = true) } catch (_: Exception) {}
     }
 }
 
@@ -50,6 +52,49 @@ object PhoneStore {
     val weights = MutableStateFlow<List<WeightEntry>>(emptyList())
     /** Daily watch data from Health Connect (sleep, resting HR, HRV, steps...). */
     val days = MutableStateFlow<List<DailyStats>>(emptyList())
+    val body = MutableStateFlow<List<BodyEntry>>(emptyList())
+    /** Last time anything arrived from the watch (epoch millis, 0 = never). */
+    val lastWatchContact = MutableStateFlow(0L)
+    val lastWorkoutReceived = MutableStateFlow(0L)
+
+    var remindMorningHour: Int
+        get() = prefs.getInt("remindHour", 8)
+        set(v) { prefs.edit().putInt("remindHour", v).apply() }
+    var remindMorning: Boolean
+        get() = prefs.getBoolean("remindOn", true)
+        set(v) { prefs.edit().putBoolean("remindOn", v).apply() }
+    var remindEvening: Boolean
+        get() = prefs.getBoolean("eveningOn", true)
+        set(v) { prefs.edit().putBoolean("eveningOn", v).apply() }
+
+    fun touchWatch(workout: Boolean = false) {
+        val now = System.currentTimeMillis()
+        lastWatchContact.value = now
+        prefs.edit().putLong("lastWatch", now).apply()
+        if (workout) { lastWorkoutReceived.value = now; prefs.edit().putLong("lastWorkoutRx", now).apply() }
+    }
+
+    private fun bodyToJson(list: List<BodyEntry>): String {
+        val a = JSONArray()
+        list.forEach {
+            a.put(JSONObject().put("t", it.time).put("w", it.weightKg).put("waist", it.waistCm).put("chest", it.chestCm)
+                .put("arm", it.armCm).put("thigh", it.thighCm).put("fat", it.bodyFatPct))
+        }
+        return a.toString()
+    }
+
+    private fun JSONObject.d(k: String): Double? = if (has(k) && !isNull(k)) optDouble(k) else null
+
+    fun addBody(e: BodyEntry) {
+        body.value = (body.value + e).sortedBy { it.time }.takeLast(500)
+        prefs.edit().putString("body", bodyToJson(body.value)).apply()
+        e.weightKg?.let { addWeight(it) }
+    }
+
+    fun deleteBody(e: BodyEntry) {
+        body.value = body.value.filter { it != e }
+        prefs.edit().putString("body", bodyToJson(body.value)).apply()
+    }
 
     fun init(ctx: Context) {
         dir = File(ctx.filesDir, "workouts").apply { mkdirs() }
@@ -61,6 +106,15 @@ object PhoneStore {
             val a = JSONArray(prefs.getString("weights", "[]"))
             (0 until a.length()).map { a.getJSONObject(it).let { o -> WeightEntry(o.getLong("t"), o.getDouble("kg")) } }
         } catch (_: Exception) { emptyList() }
+        body.value = try {
+            val a = JSONArray(prefs.getString("body", "[]"))
+            (0 until a.length()).map { i ->
+                val o = a.getJSONObject(i)
+                BodyEntry(o.getLong("t"), o.d("w"), o.d("waist"), o.d("chest"), o.d("arm"), o.d("thigh"), o.d("fat"))
+            }
+        } catch (_: Exception) { emptyList() }
+        lastWatchContact.value = prefs.getLong("lastWatch", 0L)
+        lastWorkoutReceived.value = prefs.getLong("lastWorkoutRx", 0L)
         reload()
     }
 
@@ -154,6 +208,7 @@ object PhoneStore {
         val path = item.uri.path ?: return null
         val map = DataMapItem.fromDataItem(item).dataMap
         if (path.startsWith(Protocol.PATH_PROFILE)) {
+            touchWatch()
             saveProfile(map.getString("profile"), map.getString("hrv"))
             return null
         }
@@ -161,7 +216,7 @@ object PhoneStore {
         val asset = map.getAsset("json") ?: return null
         val bytes = Tasks.await(Wearable.getDataClient(ctx).getFdForAsset(asset)).inputStream.use { it.readBytes() }
         val w = WorkoutJson.fromJson(String(bytes))
-        return if (save(w)) w else null
+        return if (save(w)) { touchWatch(workout = true); w } else null
     }
 
     /** Catch up on anything sent while the app was not running. */
@@ -205,7 +260,7 @@ class WatchListenerService : WearableListenerService() {
 
     override fun onMessageReceived(event: MessageEvent) {
         if (event.path == Protocol.PATH_LIVE) {
-            try { PhoneStore.live.value = Protocol.Live.fromJson(String(event.data)) } catch (_: Exception) {}
+            try { PhoneStore.live.value = Protocol.Live.fromJson(String(event.data)); PhoneStore.touchWatch() } catch (_: Exception) {}
         }
     }
 

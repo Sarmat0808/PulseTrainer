@@ -5,13 +5,14 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 enum class Goal(val title: String) {
+    HYBRID("Сердце + сила + качественная масса"),
     MASS("Набор мышечной массы"),
     FAT_LOSS("Снижение веса"),
     HEART("Сердце и выносливость"),
     FITNESS("Общая форма");
 
     companion object {
-        fun of(s: String?): Goal = entries.firstOrNull { it.name == s } ?: MASS
+        fun of(s: String?): Goal = entries.firstOrNull { it.name == s } ?: HYBRID
     }
 }
 
@@ -36,7 +37,26 @@ data class DailyStats(
 
 data class WeightEntry(val time: Long, val kg: Double)
 
+/** Manual body measurements (any field may be empty). */
+data class BodyEntry(
+    val time: Long,
+    val weightKg: Double? = null,
+    val waistCm: Double? = null,
+    val chestCm: Double? = null,
+    val armCm: Double? = null,
+    val thighCm: Double? = null,
+    val bodyFatPct: Double? = null,
+)
+
+/** What the coach recommends for today. */
+enum class DayType(val title: String) {
+    STRENGTH("Силовая"), CARDIO("Кардио в зоне 2"), INTERVALS("Интервалы 4×4"), WALK("Прогулка"), REST("Отдых")
+}
+
 data class CoachAdvice(
+    val type: DayType,
+    /** Recommended time of day text. */
+    val whenText: String,
     val score: Int,
     /** 0 green, 1 yellow, 2 red */
     val level: Int,
@@ -71,8 +91,10 @@ object Coach {
         workouts: List<Workout>,
         tests: List<HrvRecord>,
         weights: List<WeightEntry>,
+        body: List<BodyEntry> = emptyList(),
         now: Long = System.currentTimeMillis(),
     ): CoachAdvice {
+        var type = DayType.CARDIO
         val bounds = Physiology.zoneBounds(p)
         val reasons = ArrayList<String>()
         var score = 100
@@ -169,6 +191,7 @@ object Coach {
         when {
             level == 2 -> {
                 headline = "Сегодня — восстановление"
+                type = if (score < 25) DayType.REST else DayType.WALK
                 plan += "Без тяжёлых нагрузок: прогулка 20–40 мин в зоне 1–2 (пульс ${z(1, 2)})."
                 plan += "Растяжка или мобилизация суставов 10–15 мин."
                 plan += "Ложитесь пораньше: цель 7,5–9 ч сна."
@@ -177,6 +200,7 @@ object Coach {
             }
             level == 1 -> {
                 headline = "Сегодня — лёгкая тренировка"
+                type = DayType.CARDIO
                 plan += "Кардио в зоне 2: 30–40 мин (пульс ${z(2, 2)}) — орбитрек, велотренажёр или быстрая ходьба."
                 if (hSinceStrength >= 48 && goal != Goal.HEART)
                     plan += "Или облегчённая силовая: 2–3 подхода на упражнение, не до отказа (оставьте 3–4 повтора в запасе)."
@@ -186,8 +210,29 @@ object Coach {
                 val strengthDue = hSinceStrength >= 48 && strengthDays < 3
                 val hardDue = hSinceHard >= 72 && hard < 20
                 when (goal) {
+                    Goal.HYBRID -> if (strengthDue) {
+                        headline = "Сегодня — силовая (рост мышц)"
+                        type = DayType.STRENGTH
+                        plan += "Разминка 5–8 мин в зоне 1–2 на орбитреке или велотренажёре."
+                        plan += "Всё тело или верх/низ: 5–6 базовых упражнений (жим, тяга, приседания, подтягивания, отжимания)."
+                        plan += "3–4 рабочих подхода по 6–12 повторов, последние 1–2 повтора — тяжело, но технично."
+                        plan += "Отдых 2–3 мин — до сигнала часов (пульс ≤ $ready)."
+                        plan += "В конце 10–15 мин в зоне 2 (пульс ${z(2, 2)}) — сердце плюс восстановление. Переключение — кнопкой «Назад» на часах."
+                    } else if (hardDue && hSinceStrength >= 20) {
+                        headline = "Сегодня — интервалы 4×4 для сердца"
+                        type = DayType.INTERVALS
+                        plan += "Разминка 10 мин в зоне 2, затем 4 × 4 мин в зоне 4 (пульс ${z(4, 4)}), между ними 3 мин в зоне 1–2."
+                        plan += "Подойдут орбитрек, велотренажёр, дорожка в горку. Заминка 5–10 мин."
+                        plan += "Это самый эффективный способ поднять выносливость сердца (раз в неделю)."
+                    } else {
+                        headline = "Сегодня — кардио в зоне 2"
+                        type = DayType.CARDIO
+                        plan += "30–45 мин в зоне 2 (пульс ${z(2, 2)}): орбитрек, велосипед, быстрая ходьба. Можно говорить фразами."
+                        plan += "Укрепляет сердце и ускоряет восстановление мышц после силовой."
+                    }
                     Goal.MASS -> if (strengthDue) {
                         headline = "Сегодня — силовая на рост мышц"
+                        type = DayType.STRENGTH
                         plan += "Разминка 5–8 мин в зоне 1–2 (орбитрек/велотренажёр)."
                         plan += "5–6 упражнений на крупные группы (жим, тяга, приседания, подтягивания, отжимания на брусьях)."
                         plan += "3–4 рабочих подхода по 6–12 повторов, последние 1–2 повтора — на грани."
@@ -199,10 +244,12 @@ object Coach {
                     }
                     Goal.FAT_LOSS -> if (strengthDue) {
                         headline = "Сегодня — силовая + кардио"
+                        type = DayType.STRENGTH
                         plan += "Силовая: 4–5 упражнений, 3 подхода по 8–15 повторов, отдых 60–90 с (до пульса ≤ $ready)."
                         plan += "Сразу после — 20–30 мин в зоне 2 (пульс ${z(2, 2)}). Переключение — кнопкой «Назад» на часах."
                     } else if (hardDue) {
                         headline = "Сегодня — интервалы"
+                        type = DayType.INTERVALS
                         plan += "Разминка 10 мин в зоне 2, затем 4×4 мин в зоне 4 (пульс ${z(4, 4)}), между ними 3 мин легко."
                     } else {
                         headline = "Сегодня — длительное кардио"
@@ -210,10 +257,12 @@ object Coach {
                     }
                     Goal.HEART -> if (hardDue) {
                         headline = "Сегодня — интервалы 4×4"
+                        type = DayType.INTERVALS
                         plan += "Разминка 10 мин, затем 4 раза по 4 мин в зоне 4–5 (пульс ${bounds[3]}–${bounds[5]}), между ними 3 мин в зоне 1–2."
                         plan += "Заминка 5–10 мин. Это лучший способ поднять выносливость сердца (МПК)."
                     } else if (strengthDue && strengthDays < 2) {
                         headline = "Сегодня — силовая (2 раза в неделю)"
+                        type = DayType.STRENGTH
                         plan += "Всё тело: 5 упражнений × 3 подхода по 8–12 повторов, отдых до пульса ≤ $ready."
                     } else {
                         headline = "Сегодня — зона 2"
@@ -221,6 +270,7 @@ object Coach {
                     }
                     Goal.FITNESS -> if (strengthDue) {
                         headline = "Сегодня — силовая"
+                        type = DayType.STRENGTH
                         plan += "Всё тело: 5–6 упражнений × 3 подхода по 8–12 повторов, отдых до пульса ≤ $ready."
                         plan += "Завершите 10–15 мин в зоне 2."
                     } else {
@@ -250,6 +300,11 @@ object Coach {
         val proteinLo = (1.6 * w).roundToInt()
         val proteinHi = (2.2 * w).roundToInt()
         when (goal) {
+            Goal.HYBRID -> {
+                nutrition += "Калории: ~${(tdee + 250).roundToInt()} ккал/день (расход ~${tdee.roundToInt()} + 250 — медленный «чистый» набор)"
+                nutrition += "Белок: $proteinLo–$proteinHi г/день, по 30–40 г в 4 приёма"
+                nutrition += "Углеводы вокруг тренировок (каша, рис, фрукты) — энергия для силовой и кардио"
+            }
             Goal.MASS -> {
                 nutrition += "Калории: ~${(tdee + 300).roundToInt()} ккал/день (расход ~${tdee.roundToInt()} + 300 на рост мышц)"
                 nutrition += "Белок: $proteinLo–$proteinHi г/день, по 30–40 г в 4 приёма"
@@ -276,7 +331,7 @@ object Coach {
             val perWeek = (recentW.kg - monthAgo.kg) / weeks
             progress += "Вес: ${"%.1f".format(recentW.kg)} кг, изменение ${sign(perWeek)} кг/нед"
             when (goal) {
-                Goal.MASS -> progress += when {
+                Goal.MASS, Goal.HYBRID -> progress += when {
                     perWeek < 0.1 -> "Набор идёт медленно — добавьте ~200 ккал в день (цель +0,25…0,5 кг/нед)"
                     perWeek > 0.6 -> "Набор слишком быстрый — часть уходит в жир; уменьшите калории на ~200"
                     else -> "Темп набора правильный ✓"
@@ -306,6 +361,34 @@ object Coach {
             if (a - b >= 2) progress += "Пульс покоя снизился с ${a.roundToInt()} до ${b.roundToInt()} — хороший знак ✓"
         }
 
+        val bs = body.sortedBy { it.time }
+        val waistNow = bs.lastOrNull { it.waistCm != null }
+        val waistThen = bs.lastOrNull { it.waistCm != null && it.time <= (waistNow?.time ?: 0) - 21 * DAY }
+        if (waistNow != null && waistThen != null) {
+            val dw = waistNow.waistCm!! - waistThen.waistCm!!
+            val wkW = bs.lastOrNull { it.weightKg != null }?.weightKg
+            progress += "Талия: ${"%.1f".format(waistNow.waistCm)} см (${sign(dw)} см за ${((waistNow.time - waistThen.time) / DAY)} дн)"
+            if ((goal == Goal.MASS || goal == Goal.HYBRID) && dw > 1.5)
+                progress += "Талия растёт быстро — часть набора уходит в жир; уменьшите калории на ~200 и добавьте зону 2"
+            else if ((goal == Goal.MASS || goal == Goal.HYBRID) && dw <= 0.5 && wkW != null)
+                progress += "Талия почти не меняется — набор «качественный» ✓"
+        }
+        bs.lastOrNull { it.armCm != null }?.let { a ->
+            bs.firstOrNull { it.armCm != null && it.time < a.time - 21 * DAY }?.let { f ->
+                progress += "Бицепс: ${"%.1f".format(a.armCm)} см (${sign(a.armCm!! - f.armCm!!)} см)"
+            }
+        }
+
+        // ---- When to train ----
+        val hours = workouts.takeLast(20).map { java.util.Calendar.getInstance().apply { timeInMillis = it.start }.get(java.util.Calendar.HOUR_OF_DAY) }
+        val usual = if (hours.size >= 3) hours.sorted()[hours.size / 2] else null
+        val whenText = when (type) {
+            DayType.REST -> "Сегодня без тренировки. Короткая прогулка после еды и ранний сон."
+            DayType.WALK -> "Прогулка в любое время, лучше днём на свету: 30–40 мин."
+            else -> (if (usual != null) "Лучше в ваше обычное время — около $usual:00. " else "Лучше во второй половине дня (16–19 ч): сила и выносливость выше. ") +
+                "Тяжёлую тренировку заканчивайте не позже чем за 3 ч до сна."
+        }
+
         // ---- Tips (rotate daily) ----
         val all = listOf(
             "Прогрессивная перегрузка — главный двигатель роста: каждую неделю чуть больше веса или повторов.",
@@ -322,7 +405,7 @@ object Coach {
         val start = ((now / DAY) % all.size).toInt()
         val tips = (0 until 3).map { all[(start + it) % all.size] }
 
-        return CoachAdvice(score, level, headline, reasons, plan, weekLines, nutrition, progress, tips)
+        return CoachAdvice(type, whenText, score, level, headline, reasons, plan, weekLines, nutrition, progress, tips)
     }
 
     private fun activityFactor(sessions: Int, steps: Double?): Double {
