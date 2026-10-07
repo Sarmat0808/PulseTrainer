@@ -23,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.padding
 import fi.sarmat.pulsetrainer.core.Physiology
 import fi.sarmat.pulsetrainer.core.StressRecord
 import kotlinx.coroutines.delay
@@ -153,5 +155,48 @@ fun BreatheScreen(onDone: () -> Unit) {
             Line(if (phase == 0) "Вдох" else "Выдох", Color.White, 26, bold = true)
             Line("${left / 60}:${"%02d".format(left % 60)}", Colors.dim, 16)
         }
+    }
+}
+
+/**
+ * Interval timer setup (Tabata, HIIT, boxing, jump rope). Start is at the very top;
+ * work / rest / rounds / cycles / rest between cycles / countdown below. Saved per exercise.
+ * Classic Tabata: 20 s work, 10 s rest, 8 rounds (4 minutes).
+ */
+@Composable
+fun IntervalSetupScreen(t: fi.sarmat.pulsetrainer.core.WorkoutType, onStart: (fi.sarmat.pulsetrainer.core.WorkoutType) -> Unit) {
+    var c by remember { mutableStateOf(Storage.intervals(t)) }
+    fun set(n: fi.sarmat.pulsetrainer.core.IntervalCfg) { c = n; Storage.setIntervals(t, n) }
+    fun sec(v: Int) = if (v >= 60) "${v / 60}:${"%02d".format(v % 60)}" else "$v с"
+    ListScreen {
+        item { ItemChip("▶ Старт · ${t.short}", "Всего ${sec(c.totalSec)}", Colors.action, icon = t) { onStart(t) } }
+        item { IvStepper("Работа", sec(c.work)) { d -> set(c.copy(work = (c.work + d * if (c.work >= 60) 15 else 5).coerceIn(5, 600))) } }
+        item { IvStepper("Отдых", sec(c.rest)) { d -> set(c.copy(rest = (c.rest + d * if (c.rest >= 60) 15 else 5).coerceIn(0, 600))) } }
+        item { IvStepper("Раунды", "${c.rounds}") { d -> set(c.copy(rounds = (c.rounds + d).coerceIn(1, 50))) } }
+        item { IvStepper("Циклы", "${c.cycles}") { d -> set(c.copy(cycles = (c.cycles + d).coerceIn(1, 10))) } }
+        if (c.cycles > 1) item { IvStepper("Отдых между циклами", sec(c.cycleRest)) { d -> set(c.copy(cycleRest = (c.cycleRest + d * 15).coerceIn(0, 600))) } }
+        item { IvStepper("Отсчёт перед стартом", sec(c.prep)) { d -> set(c.copy(prep = (c.prep + d * 5).coerceIn(0, 30))) } }
+        item {
+            ItemChip("Сбросить к стандарту", if (t == fi.sarmat.pulsetrainer.core.WorkoutType.TABATA) "20 с / 10 с × 8 раундов" else null) {
+                set(fi.sarmat.pulsetrainer.core.IntervalCfg.default(t))
+            }
+        }
+        item { Line("Последние 3 секунды каждой фазы — короткие вибрации, смена фазы — длинная.", Colors.dim, 14) }
+    }
+}
+
+@Composable
+private fun IvStepper(label: String, value: String, onDelta: (Int) -> Unit) {
+    androidx.compose.foundation.layout.Row(
+        Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp)).background(Colors.card)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RoundBtn("−", size = 36.dp, textSize = 20) { onDelta(-1) }
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            androidx.wear.compose.material.Text(label, fontSize = 14.sp, color = Colors.dim, maxLines = 1)
+            androidx.wear.compose.material.Text(value, fontSize = 22.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
+        }
+        RoundBtn("+", size = 36.dp, textSize = 20) { onDelta(1) }
     }
 }

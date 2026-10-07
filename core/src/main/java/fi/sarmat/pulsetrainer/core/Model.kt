@@ -41,6 +41,8 @@ enum class WorkoutType(
     PUSH_UPS("Отжимания", "Отжимания", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
     SQUATS("Приседания", "Приседания", Mode.SETS, repCount = true, minRestSec = 90, strength = true),
     BOXING("Бокс", "Бокс", Mode.ROUNDS),
+    TABATA("Табата", "Табата", Mode.ROUNDS, roundWork = 20, roundRest = 10,
+        note = "Работа / отдых по таймеру, раунды и циклы — настраиваются"),
     TREADMILL("Беговая дорожка", "Дорожка", Mode.CARDIO, treadmill = true, steps = true),
     ELLIPTICAL("Орбитрек", "Орбитрек", Mode.CARDIO),
     BIKE_INDOOR("Велотренажёр", "Вело (зал)", Mode.CARDIO),
@@ -74,6 +76,30 @@ enum class WorkoutType(
 
     companion object {
         fun of(name: String): WorkoutType = entries.firstOrNull { it.name == name } ?: STRENGTH
+    }
+}
+
+/** Interval timer settings (Tabata, HIIT, boxing, jump rope). */
+data class IntervalCfg(
+    val work: Int,
+    val rest: Int,
+    val rounds: Int,
+    val cycles: Int = 1,
+    /** Rest between cycles, seconds. */
+    val cycleRest: Int = 60,
+    /** Countdown before the first round, seconds. */
+    val prep: Int = 10,
+) {
+    val totalSec: Int get() = prep + cycles * (rounds * work + (rounds - 1) * rest) + (cycles - 1) * cycleRest
+
+    companion object {
+        fun default(t: WorkoutType) = when (t) {
+            WorkoutType.TABATA -> IntervalCfg(20, 10, 8, 1, 60)
+            WorkoutType.HIIT -> IntervalCfg(40, 20, 10, 1, 60)
+            WorkoutType.JUMP_ROPE -> IntervalCfg(60, 30, 10, 1, 60)
+            WorkoutType.BOXING -> IntervalCfg(180, 60, 6, 1, 60)
+            else -> IntervalCfg(t.roundWork, t.roundRest, 8)
+        }
     }
 }
 

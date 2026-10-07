@@ -89,6 +89,14 @@ object WorkoutEngine {
         val cadence: Int = 0,
         /** Metres up per minute over the last minute (stairs). */
         val vSpeed: Int = 0,
+        // ----- interval timer (Tabata, HIIT, boxing, rope) -----
+        val roundsPerCycle: Int = 0,
+        val roundInCycle: Int = 1,
+        val cycleNo: Int = 1,
+        val cycles: Int = 1,
+        val prepping: Boolean = false,
+        val betweenCycles: Boolean = false,
+        val intervalsDone: Boolean = false,
     )
 
     interface Hooks {
@@ -149,6 +157,12 @@ object WorkoutEngine {
     private var lastHrr60: Int? = null
     private var roundNo = 1
     private var roundLeft = 0
+    private var cfg = fi.sarmat.pulsetrainer.core.IntervalCfg(180, 60, 8)
+    private var roundInCycle = 1
+    private var cycleNo = 1
+    private var prepping = false
+    private var betweenCycles = false
+    private var intervalsDone = false
 
     // ----- distance -----
     private var segDist = 0.0
@@ -428,7 +442,13 @@ object WorkoutEngine {
         reps = 0
         readyNotified = false; adviceGiven = false; advice = null; lastHrr60 = null
         roundNo = 1
-        roundLeft = if (t.mode == Mode.ROUNDS) t.roundWork else 0
+        roundInCycle = 1; cycleNo = 1; betweenCycles = false; intervalsDone = false
+        if (t.mode == Mode.ROUNDS) {
+            cfg = Storage.intervals(t)
+            prepping = cfg.prep > 0
+            phase = if (prepping) Phase.REST else Phase.WORK
+            roundLeft = if (prepping) cfg.prep else cfg.work
+        } else { prepping = false; roundLeft = 0 }
         segDist = 0.0
         lastLoc = null
         gpsFix = false
@@ -454,7 +474,7 @@ object WorkoutEngine {
                     sets[sets.lastIndex] = sets.last().copy(restSec = phaseSec)
                 }
             }
-            Mode.ROUNDS -> if (phase == Phase.WORK && roundLeft < type.roundWork - 5) {
+            Mode.ROUNDS -> if (phase == Phase.WORK && roundLeft < cfg.work - 3) {
                 sets.add(SetRecord(setStart, now, 0, setPeak, null, null))
             }
             Mode.CARDIO -> if (laps.isNotEmpty() && segDist - lapStartDist > 50) {
@@ -571,33 +591,47 @@ object WorkoutEngine {
         phaseSec >= type.minRestSec && (cur == null || cur <= readyHr)
 
     private fun endRound(now: Long) {
+        if (prepping) { prepping = false; startRound(now); return }
         sets.add(SetRecord(setStart, now, 0, setPeak, null, null))
         phase = Phase.REST
         phaseSec = 0
-        roundLeft = type.roundRest
         restPeak = max(setPeak, curHr ?: 0)
+        when {
+            roundInCycle >= cfg.rounds && cycleNo >= cfg.cycles -> {
+                intervalsDone = true; roundLeft = 0
+                Haptics.ready()
+                return
+            }
+            roundInCycle >= cfg.rounds -> { betweenCycles = true; roundLeft = cfg.cycleRest }
+            else -> roundLeft = cfg.rest
+        }
         Haptics.phase()
+        if (roundLeft <= 0) startRound(now)
     }
 
     private fun startRound(now: Long) {
-        if (sets.isNotEmpty()) {
+        if (intervalsDone) return
+        if (sets.isNotEmpty() && !prepping) {
             val drop = curHr?.let { restPeak - it }
             sets[sets.lastIndex] = sets.last().copy(restSec = phaseSec, hrr60 = drop)
             lastHrr60 = drop
         }
+        if (prepping) prepping = false
+        else if (betweenCycles) { betweenCycles = false; cycleNo++; roundInCycle = 1; roundNo++ }
+        else if (phase == Phase.REST && sets.isNotEmpty()) { roundInCycle++; roundNo++ }
         phase = Phase.WORK
         phaseSec = 0
-        roundNo++
-        roundLeft = type.roundWork
+        roundLeft = cfg.work
         setStart = now
         setPeak = 0
         Haptics.phase()
     }
 
     private fun tickRounds(now: Long, cur: Int?) {
+        if (intervalsDone) return
         if (phase == Phase.WORK && cur != null) setPeak = max(setPeak, cur)
         roundLeft--
-        if (roundLeft == 10) Haptics.tick()
+        if (roundLeft in 1..3) Haptics.tick()
         if (roundLeft <= 0) {
             if (phase == Phase.WORK) endRound(now) else startRound(now)
         }
@@ -674,7 +708,11 @@ object WorkoutEngine {
                     "Отдых: " + parts.joinToString(" · ") to 0
                 }
             }
-            Mode.ROUNDS -> null to 0
+            Mode.ROUNDS -> when {
+                intervalsDone -> "✓ Готово! Завершите или смените упражнение" to 1
+                prepping -> "Приготовьтесь…" to 0
+                else -> null to 0
+            }
             Mode.CARDIO -> {
                 val z = cur?.let { Physiology.zoneOf(it, bounds) } ?: 0
                 when {
@@ -774,6 +812,13 @@ object WorkoutEngine {
             z23Min = (segZone[2] + segZone[3]) / 60,
             trimp = (segments.sumOf { it.trimp } + segTrimp).toInt(),
             warmup = warmup && type.mode == Mode.SETS,
+            roundsPerCycle = cfg.rounds,
+            roundInCycle = roundInCycle,
+            cycleNo = cycleNo,
+            cycles = cfg.cycles,
+            prepping = prepping && type.mode == Mode.ROUNDS,
+            betweenCycles = betweenCycles,
+            intervalsDone = intervalsDone,
         )
     }
 

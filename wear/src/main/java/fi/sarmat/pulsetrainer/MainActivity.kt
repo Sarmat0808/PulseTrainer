@@ -43,6 +43,7 @@ sealed interface Scr {
     data object Ready : Scr
     data object Stress : Scr
     data object Breathe : Scr
+    data class Intervals(val type: WorkoutType) : Scr
 }
 
 class MainActivity : ComponentActivity() {
@@ -148,6 +149,12 @@ fun AppRoot() {
         push(Scr.Workout)
     }
 
+    /** Interval workouts first show their timer settings (Start is at the top). */
+    fun requestStart(t: WorkoutType) {
+        if (t.mode == fi.sarmat.pulsetrainer.core.Mode.ROUNDS && !WorkoutEngine.ui.value.running) push(Scr.Intervals(t))
+        else startWorkout(t)
+    }
+
     val pending by MainActivity.pendingStart.collectAsState()
     LaunchedEffect(pending) {
         val name = pending ?: return@LaunchedEffect
@@ -162,7 +169,7 @@ fun AppRoot() {
         when (current) {
             Scr.Workout -> WorkoutScreen(onSwitch = { push(Scr.Switch) })
             Scr.Home -> HomeScreen(
-                onStart = ::startWorkout,
+                onStart = ::requestStart,
                 open = { push(it) }
             )
             else -> androidx.compose.runtime.key(stack.size, current) { Dismissible(onDismiss = { pop() }) {
@@ -177,8 +184,9 @@ fun AppRoot() {
                     Scr.Hrv -> HrvScreen()
                     Scr.Profile -> ProfileScreen()
                     Scr.History -> HistoryScreen(open = { push(Scr.Summary(it)) })
-                    is Scr.Arrange -> ArrangeScreen(current.type, onStart = ::startWorkout)
-                    Scr.More -> MoreScreen(onStart = ::startWorkout, open = { push(it) })
+                    is Scr.Arrange -> ArrangeScreen(current.type, onStart = ::requestStart)
+                    Scr.More -> MoreScreen(onStart = ::requestStart, open = { push(it) })
+                    is Scr.Intervals -> IntervalSetupScreen(current.type, onStart = ::startWorkout)
                     Scr.Order -> OrderScreen()
                     Scr.Ready -> ReadyScreen(open = { push(it) })
                     Scr.Stress -> StressScreen(open = { push(it) })

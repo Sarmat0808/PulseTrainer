@@ -213,12 +213,20 @@ private fun Grid(c: List<Cell>) {
 @Composable
 private fun RoundsBlock(s: WorkoutEngine.Ui) {
     val work = s.phase == WorkoutEngine.Phase.WORK
+    val (title, color) = when {
+        s.intervalsDone -> "ГОТОВО ✓" to Colors.ready
+        s.prepping -> "ПРИГОТОВЬТЕСЬ" to Colors.wait
+        s.betweenCycles -> "ОТДЫХ МЕЖДУ ЦИКЛАМИ" to Colors.ready
+        work -> "РАБОТА" to Colors.danger
+        else -> "ОТДЫХ" to Colors.ready
+    }
+    Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
+    if (!s.intervalsDone) Text(fmtDuration(s.roundLeft.coerceAtLeast(0)), fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, lineHeight = 36.sp)
     Text(
-        "Раунд ${s.roundNo} · " + if (work) "РАБОТА" else "ОТДЫХ",
-        fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (work) Colors.danger else Colors.ready
+        "Раунд ${s.roundInCycle}/${s.roundsPerCycle}" + if (s.cycles > 1) " · цикл ${s.cycleNo}/${s.cycles}" else "",
+        fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White
     )
-    Text(fmtDuration(s.roundLeft.coerceAtLeast(0)), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color.White)
-    Text("${s.kcal} ккал · ср. ${s.avgHr}", fontSize = 14.sp, color = Colors.dim)
+    Text("${s.kcal} ккал · ср. ${s.avgHr}", fontSize = 13.sp, color = Colors.dim)
 }
 
 @Composable

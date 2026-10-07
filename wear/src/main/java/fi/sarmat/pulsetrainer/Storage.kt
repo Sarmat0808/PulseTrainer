@@ -199,6 +199,20 @@ object Storage {
 
     // ---------- Per-exercise settings ----------
 
+    fun intervals(t: WorkoutType): fi.sarmat.pulsetrainer.core.IntervalCfg {
+        val d = fi.sarmat.pulsetrainer.core.IntervalCfg.default(t)
+        return fi.sarmat.pulsetrainer.core.IntervalCfg(
+            prefs.getInt("iv_w_${t.name}", d.work), prefs.getInt("iv_r_${t.name}", d.rest),
+            prefs.getInt("iv_n_${t.name}", d.rounds), prefs.getInt("iv_c_${t.name}", d.cycles),
+            prefs.getInt("iv_cr_${t.name}", d.cycleRest), prefs.getInt("iv_p_${t.name}", d.prep),
+        )
+    }
+
+    fun setIntervals(t: WorkoutType, c: fi.sarmat.pulsetrainer.core.IntervalCfg) {
+        prefs.edit().putInt("iv_w_${t.name}", c.work).putInt("iv_r_${t.name}", c.rest).putInt("iv_n_${t.name}", c.rounds)
+            .putInt("iv_c_${t.name}", c.cycles).putInt("iv_cr_${t.name}", c.cycleRest).putInt("iv_p_${t.name}", c.prep).apply()
+    }
+
     /** Auto-pause (GPS workouts): stops time and distance when you stand still. Off by default. */
     fun autoPause(t: WorkoutType): Boolean = prefs.getBoolean("ap_${t.name}", false)
     fun setAutoPause(t: WorkoutType, on: Boolean) { prefs.edit().putBoolean("ap_${t.name}", on).apply() }

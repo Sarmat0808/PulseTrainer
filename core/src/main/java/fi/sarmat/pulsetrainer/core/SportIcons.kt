@@ -50,7 +50,7 @@ object SportIcons {
         WorkoutType.SWIMMING -> "pool"
         WorkoutType.ROWING -> "rowing"
         WorkoutType.STAIRS, WorkoutType.STAIRS_OUTDOOR, WorkoutType.STAIRS_HOME -> "stairs"
-        WorkoutType.HIIT -> "timer"
+        WorkoutType.HIIT, WorkoutType.TABATA -> "timer"
         WorkoutType.JUMP_ROPE -> "sports_handball"
         WorkoutType.HIKING -> "hiking"
         WorkoutType.SKIING -> "downhill_skiing"

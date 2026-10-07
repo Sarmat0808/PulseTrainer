@@ -105,7 +105,7 @@ fun Line(text: String, color: Color = Color.White, size: Int = 16, bold: Boolean
 fun typeHint(t: WorkoutType): String = t.note ?: when {
     t.mode == Mode.SETS && t.repCount -> "Подходы · автосчёт · отдых по пульсу"
     t.mode == Mode.SETS -> "Подходы · отдых по пульсу"
-    t.mode == Mode.ROUNDS -> "Раунды ${fmtDuration(t.roundWork)} / ${fmtDuration(t.roundRest)}"
+    t.mode == Mode.ROUNDS -> Storage.intervals(t).let { "Работа ${it.work} с / отдых ${it.rest} с × ${it.rounds}" }
     t == WorkoutType.STAIRS_HOME -> "Этажи · высота · темп подъёма"
     t == WorkoutType.STAIRS_OUTDOOR -> "Этажи · высота · GPS-маршрут"
     t == WorkoutType.STAIRS -> "Этажи по шагам · шаг/мин"
