@@ -20,11 +20,13 @@ object Health {
         val total = d.sleepMin ?: return null
         if (total <= 0) return null
         val h = total / 60.0
-        val dur = when { h >= 7 && h <= 9.5 -> 1.0; h < 7 -> max(0.0, (h - 4) / 3); else -> max(0.6, 1 - (h - 9.5) / 3) }
+        val dur = when { h >= 7 && h <= 9.5 -> 1.0; h < 7 -> max(0.0, (h - 4.5) / 2.5); else -> max(0.6, 1 - (h - 9.5) / 3) }
         val deep = d.deepMin?.let { min(1.0, it.toDouble() / total / 0.15) } ?: 0.8
         val rem = d.remMin?.let { min(1.0, it.toDouble() / total / 0.20) } ?: 0.8
         val awake = d.awakeMin?.let { max(0.0, 1 - max(0.0, it.toDouble() / (total + it) - 0.05) * 5) } ?: 0.8
-        val v = ((dur * 50 + deep * 20 + rem * 20 + awake * 10)).roundToInt().coerceIn(0, 100)
+        // Good stages cannot make up for too little sleep: short nights are capped.
+        val cap = when { h < 5.5 -> 44; h < 6.0 -> 54; h < 6.5 -> 64; h < 7.0 -> 74; else -> 100 }
+        val v = ((dur * 50 + deep * 20 + rem * 20 + awake * 10)).roundToInt().coerceIn(0, cap)
         return Score(v, when { v >= 80 -> "Отлично"; v >= 65 -> "Хорошо"; v >= 50 -> "Удовлетворительно"; else -> "Плохо" },
             when { v >= 75 -> 0; v >= 55 -> 1; else -> 2 })
     }
