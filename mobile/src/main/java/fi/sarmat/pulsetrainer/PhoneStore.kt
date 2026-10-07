@@ -230,7 +230,11 @@ object PhoneStore {
         prefs.edit().putString("body", bodyToJson(body.value)).apply()
     }
 
+    private var appCtx: Context? = null
+
     fun init(ctx: Context) {
+        appCtx = ctx.applicationContext
+        Backup.loadInfo(ctx)
         dir = File(ctx.filesDir, "workouts").apply { mkdirs() }
         prefs = ctx.getSharedPreferences("pt", Context.MODE_PRIVATE)
         profile.value = WorkoutJson.profileFromJson(prefs.getString("profile", null))
@@ -325,6 +329,7 @@ object PhoneStore {
     /** Returns true if this workout is new. */
     @Synchronized
     fun save(w: Workout): Boolean {
+        appCtx?.let { Backup.changed(it) }
         val f = File(dir, "${w.id}.json")
         val isNew = !f.exists()
         // Keep the "synced" flag if we already have it.

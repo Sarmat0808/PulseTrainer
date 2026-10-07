@@ -250,6 +250,19 @@ object Storage {
             (0 until (a?.length() ?: 0)).map { a!!.getString(it) }, o.optLong("t"), o.optInt("energy", -1), o.optString("energyLabel"))
     } catch (_: Exception) { null }
 
+    /**
+     * Offline: the watch's own coach — same rules as on the phone, from what the watch knows
+     * (night pulse, steps, morning tests, workouts). Used when the phone has not sent today's plan.
+     */
+    fun localCoach(): CoachInfo? = try {
+        val pd = Passive.summaries()
+        val days = pd.map { fi.sarmat.pulsetrainer.core.DailyStats(day = it.day, restHr = it.restHr, steps = it.steps, sleepStart = it.sleepStart, sleepEnd = it.sleepEnd) }
+        val a = fi.sarmat.pulsetrainer.core.Coach.advise(
+            profile.value, fi.sarmat.pulsetrainer.core.Goal.HYBRID, days.lastOrNull(), days, list(), hrvHistory(), emptyList(), passive = pd,
+        )
+        CoachInfo(a.score, a.level, fi.sarmat.pulsetrainer.core.Coach.levelText(a) + " · часы", a.headline, a.plan.take(3), System.currentTimeMillis())
+    } catch (_: Exception) { null }
+
     /** Today's coach info (older than 20 h is not shown). */
     fun todayCoach(): CoachInfo? = coach.value?.takeIf { System.currentTimeMillis() - it.time < 20 * 3600_000L }
 

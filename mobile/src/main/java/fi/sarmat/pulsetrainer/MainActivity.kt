@@ -423,6 +423,9 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
                 Text("Поделиться для ИИ-анализа", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Button(onClick = { Share.workout(ctx, w, true) }, modifier = Modifier.fillMaxWidth()) { Text("Полный отчёт + файлы") }
                 OutlinedButton(onClick = { Share.workout(ctx, w, false) }, modifier = Modifier.fillMaxWidth()) { Text("Только текст") }
+                OutlinedButton(onClick = { Share.exportTcx(ctx, w) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Экспорт для Strava / Garmin (TCX)")
+                }
                 if (w.track.size >= 2) OutlinedButton(onClick = { Share.openRoute(ctx, w) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Открыть маршрут в Organic Maps")
                 }

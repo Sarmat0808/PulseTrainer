@@ -227,4 +227,16 @@ object Share {
             }
         }
     }
+
+    /** TCX for Strava / Garmin Connect / TrainingPeaks: save to Drive, send to the Strava app or upload on strava.com. */
+    fun exportTcx(ctx: Context, w: Workout) {
+        val f = File(shareDir(ctx), "pulsetrainer_${stamp(w.start)}.tcx").apply { writeText(Gpx.tcx(w)) }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "application/vnd.garmin.tcx+xml"
+            putExtra(Intent.EXTRA_STREAM, uri(ctx, f))
+            putExtra(Intent.EXTRA_SUBJECT, "PulseTrainer: ${w.title}")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        ctx.startActivity(Intent.createChooser(send, "Экспорт тренировки (TCX)"))
+    }
 }

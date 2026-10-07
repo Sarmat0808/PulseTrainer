@@ -307,6 +307,7 @@ fun ProfileTab() {
                 if (stored == null) Text("Профиль ещё не пришёл с часов — откройте PulseTrainer на часах.", color = Warn, fontSize = 15.sp)
             }
         }
+        item { BackupCard() }
         item { FontCard() }
         item { BodyCard() }
         item { RemindersCard() }
@@ -496,5 +497,79 @@ private fun FontCard() {
         Text("Размер шрифта", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Stepper("Масштаб", "${(scale * 100).roundToInt()}%", 0.05) { d -> PhoneStore.setFontScale(scale + d.toFloat()) }
         Text("Так будет выглядеть обычный текст в приложении.", color = Color.White, fontSize = 15.sp)
+    }
+}
+
+
+// ======================= Backup & other services =======================
+
+@Composable
+private fun BackupCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var last by remember { mutableStateOf(Backup.lastManual) }
+    var askRestore by remember { mutableStateOf<android.net.Uri?>(null) }
+    val stamp = SimpleDateFormat("ddMMyyyy_HHmm", Locale.US).format(Date())
+    val saveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { Backup.export(ctx, uri) }.getOrDefault(-1) }
+            last = Backup.lastManual
+            Toast.makeText(ctx, if (n > 0) "Копия сохранена ($n файлов)" else "Не удалось сохранить", Toast.LENGTH_LONG).show()
+        }
+    }
+    val openLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) askRestore = uri }
+    val tcxLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { Backup.exportAllTcx(ctx, uri) }.getOrDefault(-1) }
+            Toast.makeText(ctx, if (n >= 0) "Экспортировано тренировок: $n" else "Не удалось экспортировать", Toast.LENGTH_LONG).show()
+        }
+    }
+    Section {
+        Text("Резервная копия и синхронизация", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("✓ Автоматически: копия в ваш Google-аккаунт (Google Диск) раз в сутки, когда телефон заряжается по Wi-Fi. На новом телефоне данные вернутся при установке.",
+            color = Good, fontSize = 15.sp)
+        Text("Последняя ручная копия: " + if (last > 0) dFmt.format(Date(last)) else "ещё не было", color = Dim, fontSize = 15.sp)
+        androidx.compose.material3.Button(onClick = { saveLauncher.launch("PulseTrainer_$stamp.zip") }, modifier = Modifier.fillMaxWidth()) {
+            Text("Сохранить копию (Google Диск / файлы)", fontSize = 16.sp)
+        }
+        OutlinedButton(onClick = { openLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }, modifier = Modifier.fillMaxWidth()) {
+            Text("Восстановить из копии", fontSize = 16.sp)
+        }
+        Expander("Strava, Garmin Connect и другие сервисы") {
+            BulletText("Samsung Health — автоматически через Health Connect (а оттуда в Samsung Cloud).", Color.White, 15)
+            BulletText("Strava / Garmin Connect / TrainingPeaks: в каждой тренировке кнопка «Экспорт (TCX)» — пульс, маршрут и дистанция. В Strava: strava.com → «+» → «Загрузить активность» → файл.", Color.White, 15)
+            OutlinedButton(onClick = { tcxLauncher.launch("PulseTrainer_TCX_$stamp.zip") }, modifier = Modifier.fillMaxWidth()) {
+                Text("Экспорт всех тренировок (TCX, zip)")
+            }
+            BulletText("Часы работают и без телефона: тренировки, тесты и ночной пульс хранятся на часах и досылаются, когда телефон снова рядом.", Dim, 15)
+        }
+    }
+    askRestore?.let { uri ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { askRestore = null },
+            title = { Text("Восстановить из копии?") },
+            text = { Text("Тренировки из копии добавятся к текущим, профиль, тесты и питание заменятся данными из копии. Приложение перезапустится.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    askRestore = null
+                    scope.launch {
+                        val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { Backup.import(ctx, uri) }.getOrDefault(-1) }
+                        if (n <= 0) { Toast.makeText(ctx, "В файле нет данных PulseTrainer", Toast.LENGTH_LONG).show(); return@launch }
+                        Toast.makeText(ctx, "Восстановлено ($n). Перезапуск…", Toast.LENGTH_LONG).show()
+                        kotlinx.coroutines.delay(1200)
+                        val i = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        if (i != null) ctx.startActivity(i)
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }
+                }) { Text("Восстановить") }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { askRestore = null }) { Text("Отмена") } },
+        )
     }
 }

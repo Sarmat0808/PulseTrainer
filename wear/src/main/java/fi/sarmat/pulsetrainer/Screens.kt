@@ -128,7 +128,7 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
     val moreCount = remember { Storage.moreTypes().size }
     val hrv = remember { Storage.todayHrv() }
     val last = remember { Storage.lastWorkout()?.takeIf { Physiology.isRealWorkout(it) } }
-    val coach = coachAll?.takeIf { System.currentTimeMillis() - it.time < 20 * 3600_000L }
+    val coach = coachAll?.takeIf { System.currentTimeMillis() - it.time < 20 * 3600_000L } ?: remember { Storage.localCoach() }
 
     ListScreen {
         if (running.running) item {
@@ -189,7 +189,7 @@ fun HomeScreen(onStart: (WorkoutType) -> Unit, open: (Scr) -> Unit) {
 @Composable
 fun ReadyScreen(open: (Scr) -> Unit) {
     val all by Storage.coach.collectAsState()
-    val c = all
+    val c = all?.takeIf { System.currentTimeMillis() - it.time < 20 * 3600_000L } ?: remember { Storage.localCoach() }
     ListScreen {
         if (c == null) {
             item { Line("Нет данных с телефона. Откройте PulseTrainer на телефоне.", Colors.dim) }
