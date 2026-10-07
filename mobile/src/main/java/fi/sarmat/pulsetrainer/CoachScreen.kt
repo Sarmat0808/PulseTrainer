@@ -51,6 +51,17 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
+private val COACH_CARDS = linkedMapOf(
+    "plan" to "План на сегодня и готовность",
+    "sync" to "Синхронизация",
+    "sleep" to "Сон",
+    "stats" to "Показатели часов",
+    "week" to "Неделя",
+    "progress" to "Прогресс (вес, талия)",
+    "nutrition" to "Питание под цель",
+    "tips" to "Советы тренера",
+)
+
 @Composable
 fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit) {
     val profile by PhoneStore.profile.collectAsState()
@@ -68,11 +79,15 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
         Coach.advise(p, goal, today, days, workouts, tests, weights, body)
     }
     val color = when (advice.level) { 0 -> Good; 1 -> Warn; else -> Danger }
+    val cards = rememberCards("coach", COACH_CARDS.keys.toList())
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text("Личный тренер", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("Цель: ${goal.title}", fontSize = 13.sp, color = Dim)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Личный тренер", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                ArrangeButton("coach", COACH_CARDS)
+            }
+            Text("Цель: ${goal.title}", fontSize = 14.sp, color = Dim)
         }
         if (needAccess) item {
             Section {
@@ -81,7 +96,8 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
                 Button(onClick = onGrant) { Text("Разрешить доступ") }
             }
         }
-        item {
+        cards.forEach { id -> item(key = id) { when (id) {
+        "plan" -> {
             Section {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ScoreRing(advice.score, color)
@@ -99,34 +115,35 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
                 }
             }
         }
-        item { SyncCard(needAccess, days) }
-        item { SleepCard(today) }
-        item { StatsCard(days, p) }
-        item {
+        "sync" -> SyncCard(needAccess, days)
+        "sleep" -> SleepCard(today)
+        "stats" -> StatsCard(days, p)
+        "week" -> {
             Section {
                 Text("Неделя", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 advice.week.forEach { Bullet(it, Color.White) }
             }
         }
-        item {
+        "progress" -> {
             Section {
                 Text("Прогресс", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 WeightChart(weights.map { it.time to it.kg })
                 advice.progress.forEach { Bullet(it, Color.White) }
             }
         }
-        item {
+        "nutrition" -> {
             Section {
                 Text("Питание под цель", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 advice.nutrition.forEach { Bullet(it, Color.White) }
             }
         }
-        item {
+        "tips" -> {
             Section {
                 Text("Советы тренера", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 advice.tips.forEach { Bullet(it, Color.White) }
             }
         }
+        } } }
         item {
             OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Обновить данные часов") }
             Text(

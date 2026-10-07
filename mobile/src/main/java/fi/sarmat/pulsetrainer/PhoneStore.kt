@@ -58,6 +58,29 @@ object PhoneStore {
     val lastWatchContact = MutableStateFlow(0L)
     val lastWorkoutReceived = MutableStateFlow(0L)
 
+    // ---------- Your own order of cards on each tab ----------
+    val cardsVersion = MutableStateFlow(0)
+
+    fun cardOrder(tab: String, defaults: List<String>): List<String> {
+        val saved = (prefs.getString("cards_$tab", "") ?: "").split(',').filter { it in defaults }
+        return saved + defaults.filter { it !in saved }
+    }
+
+    fun saveCardOrder(tab: String, list: List<String>) {
+        prefs.edit().putString("cards_$tab", list.joinToString(",")).apply()
+        cardsVersion.value++
+    }
+
+    fun hiddenCards(tab: String): Set<String> =
+        (prefs.getString("hidden_$tab", "") ?: "").split(',').filter { it.isNotBlank() }.toSet()
+
+    fun setCardHidden(tab: String, id: String, hidden: Boolean) {
+        val set = hiddenCards(tab).toMutableSet()
+        if (hidden) set += id else set -= id
+        prefs.edit().putString("hidden_$tab", set.joinToString(",")).apply()
+        cardsVersion.value++
+    }
+
     /** Text size in the phone app (1.0 = system size). */
     val fontScale = MutableStateFlow(1.15f)
     fun setFontScale(v: Float) {

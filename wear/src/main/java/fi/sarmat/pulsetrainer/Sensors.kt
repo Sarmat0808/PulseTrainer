@@ -10,30 +10,71 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import androidx.health.services.client.HealthServices
+import androidx.health.services.client.MeasureCallback
+import androidx.health.services.client.data.Availability
+import androidx.health.services.client.data.DataPointContainer
+import androidx.health.services.client.data.DataType
+import androidx.health.services.client.data.DeltaDataType
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
-/** Backup: the watch's own optical sensor, used only when the strap is not delivering. */
+/**
+ * Backup: the watch's own optical sensor, used when the strap is not delivering
+ * (forgotten at home, flat battery, out of range).
+ *
+ * Two sources at once for reliability during movement:
+ * - Health Services (Samsung's own processed heart rate — the same value the watch face shows);
+ * - the raw heart-rate sensor.
+ * Readings flagged "unreliable" during movement are still used (only "no skin contact" is dropped),
+ * and the last value is held for a few seconds so the screen never blinks to "--".
+ */
 class WatchHr(ctx: Context) : SensorEventListener {
     private val sm = ctx.getSystemService(SensorManager::class.java)
-    var bpm: Int? = null
+    private val measure = try { HealthServices.getClient(ctx).measureClient } catch (_: Throwable) { null }
+    @Volatile var bpm: Int? = null
         private set
-    private var at = 0L
+    @Volatile private var at = 0L
+    private var measuring = false
 
-    fun start() {
-        val s = sm?.getDefaultSensor(Sensor.TYPE_HEART_RATE) ?: return
-        try { sm.registerListener(this, s, SensorManager.SENSOR_DELAY_NORMAL) } catch (_: SecurityException) {}
+    private val callback = object : MeasureCallback {
+        override fun onAvailabilityChanged(dataType: DeltaDataType<*, *>, availability: Availability) {}
+        override fun onDataReceived(data: DataPointContainer) {
+            val v = data.getData(DataType.HEART_RATE_BPM).lastOrNull()?.value ?: return
+            set(v.roundToInt())
+        }
     }
 
-    fun stop() { sm?.unregisterListener(this); bpm = null }
+    private fun set(v: Int) {
+        if (v in 30..230) { bpm = v; at = SystemClock.elapsedRealtime() }
+    }
 
-    fun fresh(): Int? = if (SystemClock.elapsedRealtime() - at < 6000) bpm else null
+    fun start() {
+        sm?.getDefaultSensor(Sensor.TYPE_HEART_RATE)?.let {
+            try { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) } catch (_: SecurityException) {}
+        }
+        if (!measuring && measure != null) {
+            try { measure.registerMeasureCallback(DataType.HEART_RATE_BPM, callback); measuring = true } catch (_: Throwable) {}
+        }
+    }
+
+    fun stop() {
+        sm?.unregisterListener(this)
+        if (measuring) {
+            try { measure?.unregisterMeasureCallbackAsync(DataType.HEART_RATE_BPM, callback) } catch (_: Throwable) {}
+            measuring = false
+        }
+        bpm = null
+    }
+
+    /** Last value if it is not older than 10 s. */
+    fun fresh(): Int? = if (SystemClock.elapsedRealtime() - at < 10_000) bpm else null
 
     override fun onSensorChanged(e: SensorEvent) {
+        if (e.accuracy == SensorManager.SENSOR_STATUS_NO_CONTACT) return
         val v = e.values.firstOrNull()?.toInt() ?: return
-        if (v in 30..230 && e.accuracy >= SensorManager.SENSOR_STATUS_ACCURACY_LOW) {
-            bpm = v; at = SystemClock.elapsedRealtime()
-        }
+        if (v > 0) set(v)
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}

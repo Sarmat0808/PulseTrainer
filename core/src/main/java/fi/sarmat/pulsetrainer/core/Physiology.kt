@@ -142,8 +142,20 @@ object Physiology {
      * >= -0.5 SD green, >= -1.5 SD yellow, otherwise red.
      * Resting HR 5+ bpm above usual lowers the status by one step.
      */
-    fun readiness(today: Double, restHr: Int, history: List<HrvRecord>): Int {
+    /**
+     * Readiness without a chest strap (watch only): the watch cannot give beat-to-beat
+     * intervals to apps, so we compare morning resting HR with your 7-day norm.
+     * +4 bpm = yellow, +8 bpm = red.
+     */
+    fun readinessByRest(restHr: Int, history: List<HrvRecord>): Int {
         val base = history.sortedByDescending { it.time }.take(7)
+        if (base.size < 3) return -1
+        val diff = restHr - base.map { it.restHr }.average()
+        return when { diff >= 8 -> 2; diff >= 4 -> 1; else -> 0 }
+    }
+
+    fun readiness(today: Double, restHr: Int, history: List<HrvRecord>): Int {
+        val base = history.filter { it.rmssd > 0 }.sortedByDescending { it.time }.take(7)
         if (base.size < 3 || today <= 0) return -1
         val logs = base.map { ln(max(it.rmssd, 1.0)) }
         val mean = logs.average()

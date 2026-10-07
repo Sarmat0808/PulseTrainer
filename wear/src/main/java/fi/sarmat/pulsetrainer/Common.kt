@@ -64,14 +64,14 @@ fun ZoneRing(hr: Int?, bounds: IntArray, modifier: Modifier = Modifier) {
         val hi = bounds[5]
         fun ang(v: Int) = 135f + 270f * ((v - lo).toFloat() / (hi - lo)).coerceIn(0f, 1f)
         val cur = hr?.let { fi.sarmat.pulsetrainer.core.Physiology.zoneOf(it, bounds) } ?: -1
-        drawArc(Colors.zone[0].copy(alpha = if (cur == 0) 1f else 0.35f), ang(lo), ang(bounds[0]) - ang(lo) - 1.5f,
+        drawArc(Colors.zone[0].copy(alpha = if (cur == 0) 1f else 0.7f), ang(lo), ang(bounds[0]) - ang(lo) - 1.5f,
             false, tl, Size(d, d), style = Stroke(stroke, cap = StrokeCap.Butt))
         for (z in 1..5) {
             val a0 = ang(bounds[z - 1])
             val a1 = ang(bounds[z])
             drawArc(
-                Colors.zone[z].copy(alpha = if (cur == z) 1f else 0.35f), a0 + 0.75f, a1 - a0 - 1.5f,
-                false, tl, Size(d, d), style = Stroke(if (cur == z) stroke * 1.3f else stroke, cap = StrokeCap.Butt)
+                Colors.zone[z].copy(alpha = if (cur == z) 1f else 0.7f), a0 + 0.75f, a1 - a0 - 1.5f,
+                false, tl, Size(d, d), style = Stroke(if (cur == z) stroke * 1.5f else stroke, cap = StrokeCap.Butt)
             )
         }
         if (hr != null) {

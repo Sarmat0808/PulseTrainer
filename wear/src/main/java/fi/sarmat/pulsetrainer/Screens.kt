@@ -358,70 +358,90 @@ fun HistoryScreen(open: (String) -> Unit) {
 @Composable
 fun HrvScreen() {
     KeepScreenOn()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val st by HrSensor.status.collectAsState()
     val bpm by HrSensor.bpm.collectAsState()
     var stage by remember { mutableIntStateOf(0) } // 0 idle, 1 measuring, 2 result
     var left by remember { mutableIntStateOf(0) }
+    var live by remember { mutableStateOf<Int?>(null) }
+    var useStrap by remember { mutableStateOf(true) }
     var result by remember { mutableStateOf<HrvRecord?>(null) }
     val today = remember { Storage.todayHrv() }
+    // Watch sensor: used when the strap is not connected.
+    val watch = remember { WatchHr(ctx) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        watch.start()
+        onDispose { watch.stop() }
+    }
 
     LaunchedEffect(stage) {
         if (stage != 1) return@LaunchedEffect
+        val strap = useStrap
         val total = 150
         val settle = 30
         var sec = 0
         val rr = ArrayList<Int>()
         val hrs = ArrayList<Int>()
-        val job = launch { HrSensor.rr.collect { if (sec >= settle) rr += it } }
+        val job = launch { HrSensor.rr.collect { if (strap && sec >= settle) rr += it } }
         while (sec < total) {
             left = total - sec
-            if (sec >= settle) HrSensor.freshBpm()?.let { hrs += it }
+            val v = if (strap) HrSensor.freshBpm() else watch.fresh()
+            live = v
+            if (sec >= settle) v?.let { hrs += it }
             delay(1000)
             sec++
         }
         job.cancel()
-        val clean = Physiology.cleanRr(rr)
-        val rmssd = Physiology.rmssd(clean)
-        val rest = if (hrs.isNotEmpty()) hrs.sorted().take((hrs.size / 2).coerceAtLeast(1)).average().toInt()
-        else if (clean.isNotEmpty()) (60000.0 / clean.average()).toInt() else 0
-        if (rmssd > 0 && rest > 0) {
-            val status = Physiology.readiness(rmssd, rest, Storage.hrvHistory())
-            val rec = HrvRecord(System.currentTimeMillis(), rmssd, rest, status)
-            Storage.addHrv(rec)
-            result = rec
-            Haptics.ready()
+        val rest = if (hrs.isNotEmpty()) hrs.sorted().take((hrs.size / 2).coerceAtLeast(1)).average().toInt() else 0
+        if (strap) {
+            val clean = Physiology.cleanRr(rr)
+            val rmssd = Physiology.rmssd(clean)
+            val r2 = if (rest > 0) rest else if (clean.isNotEmpty()) (60000.0 / clean.average()).toInt() else 0
+            if (rmssd > 0 && r2 > 0) {
+                val rec = HrvRecord(System.currentTimeMillis(), rmssd, r2, Physiology.readiness(rmssd, r2, Storage.hrvHistory()))
+                Storage.addHrv(rec); result = rec; Haptics.ready()
+            }
+        } else if (rest > 0) {
+            // Watch only: resting pulse vs your norm (rmssd = 0 marks a watch test).
+            val rec = HrvRecord(System.currentTimeMillis(), 0.0, rest, Physiology.readinessByRest(rest, Storage.hrvHistory()))
+            Storage.addHrv(rec); result = rec; Haptics.ready()
         }
         stage = 2
     }
 
     ListScreen {
-        item { ListHeader { Text("Готовность") } }
+        item { ListHeader { Text("Готовность", fontSize = 16.sp) } }
         when (stage) {
             0 -> {
                 if (today != null) item { ResultCard(today) }
                 item {
-                    Line("Утром, сразу после пробуждения: наденьте H10, лягте и спокойно дышите 2,5 минуты. Не разговаривайте.", Colors.dim, 13)
+                    Line("Утром, сразу после пробуждения: лягте и спокойно дышите 2,5 минуты. Не разговаривайте.", Colors.dim, 13)
                 }
                 if (st == HrSensor.Status.CONNECTED) item {
-                    ItemChip("Начать тест", "♥ ${bpm ?: "--"}", Colors.action) { stage = 1 }
-                } else item {
-                    ItemChip("Сначала подключите датчик", "Нужны интервалы между ударами", Color(0xFF4D3A1F)) { HrSensor.connectSaved() }
+                    ItemChip("Начать тест с H10", "Точнее: вариабельность + пульс покоя · ♥ ${bpm ?: "--"}", Colors.action) {
+                        useStrap = true; stage = 1
+                    }
+                }
+                item {
+                    ItemChip("Начать тест с часами", "Без ремня: по пульсу покоя", if (st == HrSensor.Status.CONNECTED) Colors.card else Colors.action) {
+                        useStrap = false; stage = 1
+                    }
                 }
             }
             1 -> {
                 item { Line(fmtDuration(left), Color.White, 34, bold = true) }
-                item { Line("♥ ${bpm ?: "--"}", Colors.zone[1], 18) }
+                item { Line("♥ ${live ?: "--"} · ${if (useStrap) "H10" else "часы"}", Colors.zone[1], 18) }
                 item { Line(if (left > 120) "Успокойтесь…" else "Измеряю… лежите спокойно", Colors.dim, 14) }
                 item { ItemChip("Отмена", null) { stage = 0 } }
             }
             else -> {
                 val r = result
-                if (r != null) item { ResultCard(r) } else item { Line("Не хватило данных. Проверьте посадку ремня и повторите.", Colors.wait, 14) }
+                if (r != null) item { ResultCard(r) } else item { Line("Не хватило данных. Проверьте посадку и повторите.", Colors.wait, 14) }
                 item { ItemChip("Готово", null, Colors.action) { stage = 0 } }
             }
         }
         item {
-            Line("Вариабельность пульса (RMSSD) сравнивается с вашей нормой за 7 дней. Пульс покоя из теста уточняет ваши зоны.", Colors.dim, 12)
+            Line("Тест сравнивается с вашей нормой за 7 дней (нужно 3 теста). С ремнём — по вариабельности пульса, с часами — по пульсу покоя.", Colors.dim, 12)
         }
     }
 }
@@ -432,7 +452,7 @@ private fun ResultCard(r: HrvRecord) {
     Card {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Line(Physiology.READINESS_TEXT[r.status] ?: "", c, 13, bold = true)
-            Line("ВСР ${r.rmssd.toInt()} мс · покой ${r.restHr} уд/мин", Colors.dim, 13)
+            Line(if (r.rmssd > 0) "ВСР ${r.rmssd.toInt()} мс · покой ${r.restHr} уд/мин" else "Пульс покоя ${r.restHr} уд/мин (часы)", Colors.dim, 13)
         }
     }
 }

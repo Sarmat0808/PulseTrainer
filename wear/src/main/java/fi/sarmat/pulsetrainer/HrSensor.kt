@@ -63,7 +63,7 @@ object HrSensor {
     /** Fresh = a beat arrived in the last 5 seconds. */
     fun freshBpm(): Int? {
         val v = bpm.value ?: return null
-        return if (SystemClock.elapsedRealtime() - lastBeatAt < 5000 && !contactLost.value) v else null
+        return if (SystemClock.elapsedRealtime() - lastBeatAt < 6000 && !contactLost.value) v else null
     }
 
     fun isConnected() = status.value == Status.CONNECTED

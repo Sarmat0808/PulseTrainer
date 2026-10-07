@@ -131,11 +131,13 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit) {
                 Text(hr?.toString() ?: "--", fontSize = 60.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 60.sp)
                 Column(Modifier.padding(start = 4.dp)) {
                     Text("♥", fontSize = 18.sp, color = zc)
-                    Text(if (s.hrFromStrap) "H10" else "часы", fontSize = 12.sp, color = if (s.hrFromStrap) Colors.dim else Colors.wait)
+                    if (s.type.mode != Mode.CARDIO) Text(Physiology.ZONE_SHORT[zone], fontSize = 13.sp, fontWeight = FontWeight.Bold, color = zc)
+                    Text(if (hr == null) "нет пульса" else if (s.hrFromStrap) "H10" else "часы", fontSize = 12.sp,
+                        color = if (s.hrFromStrap) Colors.dim else Colors.wait)
                 }
             }
             if (s.type.mode == Mode.CARDIO) {
-                Text(Physiology.ZONE_SHORT[zone], fontSize = 16.sp, fontWeight = FontWeight.Bold, color = zc, maxLines = 1)
+                Text(Physiology.ZONE_NAMES[zone], fontSize = 15.sp, fontWeight = FontWeight.Bold, color = zc, maxLines = 1)
             }
             when (s.type.mode) {
                 Mode.SETS -> SetsBlock(s, hr)
@@ -209,7 +211,7 @@ private fun CardioBlock(s: WorkoutEngine.Ui) {
     } else {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Metric("${s.kcal}", "ккал")
-            Metric(fmtDuration(s.segZoneSec[2]), "в зоне 2")
+            Metric("${s.avgHr}", "ср. пульс")
         }
     }
 }

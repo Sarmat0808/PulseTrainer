@@ -195,23 +195,38 @@ fun PhoneRoot(openId: MutableState<String?>) {
     }
 }
 
+private val WORKOUT_CARDS = linkedMapOf(
+    "health" to "Samsung Health / Health Connect",
+    "share" to "Поделиться для ИИ-анализа",
+)
+
 @Composable
 private fun WorkoutsTab(
     workouts: List<Workout>, hcStatus: Int, granted: Set<String>, requestHc: () -> Unit,
     onSync: () -> Unit, open: (String) -> Unit,
 ) {
+    val cards = rememberCards("workouts", WORKOUT_CARDS.keys.toList())
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text("Тренировки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("Polar H10 → Galaxy Watch → Samsung Health", fontSize = 13.sp, color = Dim)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Тренировки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                ArrangeButton("workouts", WORKOUT_CARDS)
+            }
+            Text("Polar H10 / часы → Galaxy Watch → Samsung Health", fontSize = 14.sp, color = Dim)
         }
         item { LiveCard() }
-        item { HealthCard(hcStatus, granted, onGrant = requestHc, onSync = onSync) }
-        item { ShareCard() }
+        cards.forEach { id ->
+            item(key = id) {
+                when (id) {
+                    "health" -> HealthCard(hcStatus, granted, onGrant = requestHc, onSync = onSync)
+                    "share" -> ShareCard()
+                }
+            }
+        }
         if (workouts.isEmpty()) item {
             Text("Пока пусто. Завершите тренировку на часах — она появится здесь автоматически.", color = Dim, fontSize = 14.sp)
         }

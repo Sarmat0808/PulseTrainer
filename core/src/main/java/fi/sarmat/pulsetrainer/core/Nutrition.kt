@@ -191,6 +191,53 @@ object Nutrition {
         return out
     }
 
+    /** One ready-to-add option: this product, this many grams. */
+    data class Suggestion(val food: Food, val grams: Double, val text: String, val enough: Boolean)
+
+    private data class Src(val id: String, val maxG: Double)
+
+    private val PROTEIN_SRC = listOf(Src("cottage5", 400.0), Src("chicken", 300.0), Src("egg", 220.0), Src("tuna", 300.0),
+        Src("protein", 60.0), Src("kefir", 750.0), Src("cheese", 80.0), Src("cottage0", 400.0))
+    private val CARB_SRC = listOf(Src("buckwheat", 200.0), Src("rice", 200.0), Src("oats", 150.0), Src("pasta", 200.0),
+        Src("bulgur", 200.0), Src("potato", 600.0), Src("banana", 360.0), Src("bread_rye", 200.0))
+    private val FAT_SRC = listOf(Src("rapeseed_oil", 30.0), Src("peanut_butter", 50.0), Src("walnuts", 50.0),
+        Src("cheese", 80.0), Src("seeds", 50.0), Src("butter", 30.0))
+
+    /**
+     * For one macro gap: how much of each everyday product covers it.
+     * Example: protein gap 40 g → "Творог 5% — 235 г → +40 г белка, 280 ккал".
+     */
+    fun cover(macro: Char, gap: Double, foods: List<Food>): List<Suggestion> {
+        if (gap < 3) return emptyList()
+        val byId = foods.associateBy { it.id }
+        val src = when (macro) { 'p' -> PROTEIN_SRC; 'c' -> CARB_SRC; else -> FAT_SRC }
+        return src.mapNotNull { s ->
+            val f = byId[s.id] ?: return@mapNotNull null
+            val per100 = when (macro) { 'p' -> f.p; 'c' -> f.c; else -> f.f }
+            if (per100 <= 0) return@mapNotNull null
+            val need = gap / per100 * 100
+            val pg = f.pieceG
+            val g = if (pg != null && f.pieceName == "шт") ((minOf(need, s.maxG) / pg).roundToInt().coerceAtLeast(1) * pg).toDouble()
+            else (minOf(need, s.maxG) / 5).roundToInt().coerceAtLeast(1) * 5.0
+            val e = entry(f, g)
+            val got = when (macro) { 'p' -> e.p; 'c' -> e.c; else -> e.f }
+            val amount = amountLabel(f, g)
+            val unit = when (macro) { 'p' -> "белка"; 'c' -> "углеводов"; else -> "жиров" }
+            val enough = got >= gap * 0.9
+            Suggestion(f, g, "${f.name} — $amount → +${got.roundToInt()} г $unit, ${e.kcal.roundToInt()} ккал" +
+                if (!enough) " (часть нормы)" else "", enough)
+        }.take(5)
+    }
+
+    fun amountLabel(f: Food, g: Double): String {
+        val pg = f.pieceG
+        val unit = if (f.drink) "мл" else "г"
+        return if (pg != null && f.pieceName == "шт" && g >= pg * 0.8) {
+            val n = (g / pg).roundToInt().coerceAtLeast(1)
+            "$n шт (~${g.roundToInt()} $unit)"
+        } else "${g.roundToInt()} $unit"
+    }
+
     data class PlanItem(val meal: String, val foodId: String, val name: String, val grams: Double, val label: String)
 
     /** Example day menu from everyday products, scaled to the targets. */
