@@ -213,6 +213,16 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                     Mini(today?.distanceM?.let { "%.1f".format(it / 1000) } ?: "—", "км", Modifier.weight(1f))
                     Mini((today?.floors?.roundToInt() ?: passive.lastOrNull()?.takeIf { it.day == today?.day }?.floors)?.toString() ?: "—", "этажей", Modifier.weight(1f))
                 }
+                val src = today?.day?.let { HealthData.stepSources[it] }.orEmpty()
+                val watchOwn = passive.lastOrNull()?.takeIf { it.day == today?.day }?.steps
+                if (src.isNotEmpty() || watchOwn != null) Expander("Откуда шаги") {
+                    src.sortedByDescending { it.total }.forEach { x ->
+                        VRow(x.name, "%,d".format(x.total).replace(',', ' '),
+                            if (x.watch > 0 && x.phone > 0) "часы ${x.watch} + телефон ${x.phone}" else if (x.watch > 0) "с часов" else "с телефона")
+                    }
+                    watchOwn?.let { VRow("Часы (PulseTrainer)", "%,d".format(it).replace(',', ' '), "счётчик часов, без телефона") }
+                    Text("Показывается Samsung Health (как на циферблате); копии из других приложений не складываются.", color = Dim, fontSize = 13.sp)
+                }
             }
             "trend" -> Tile {
                 TileTitle("Куда я двигаюсь")

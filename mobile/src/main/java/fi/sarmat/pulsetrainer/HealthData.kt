@@ -72,6 +72,21 @@ object HealthData {
 
     data class Snapshot(val days: List<DailyStats>, val ext: List<ExtWorkout>, val hrRecent: List<Pair<Long, Int>> = emptyList())
 
+    /** Steps of one app in Health Connect for one day: from the watch, and from the phone (not overlapping the watch). */
+    data class StepSource(val pkg: String, val watch: Long, val phone: Long) {
+        val total: Long get() = watch + phone
+        val name: String get() = when {
+            pkg.contains("shealth") -> "Samsung Health"
+            pkg.contains("google.android.apps.fitness") -> "Google Fit"
+            pkg.contains("healthconnect") || pkg == "android" -> "Health Connect (телефон)"
+            pkg.contains("pulsetrainer") -> "PulseTrainer"
+            else -> pkg
+        }
+    }
+
+    /** Last breakdown of steps by source (day start → sources), for the «Откуда шаги» view. */
+    val stepSources = java.util.concurrent.ConcurrentHashMap<Long, List<StepSource>>()
+
     private val zone: ZoneId get() = ZoneId.systemDefault()
 
     private fun dayStart(t: Instant): Long = t.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
@@ -259,25 +274,30 @@ object HealthData {
                 }
             } catch (_: Exception) {}
         }
-        // Samsung Health puts the phone's and the watch's steps into Health Connect as separate records.
-        // The sum counts the same walk twice (phone in pocket + watch on wrist). Samsung itself shows the
-        // watch steps and adds the phone only while the watch was off. Same here for the last 14 days:
-        // all watch records + phone records that don't overlap any watch record.
+        // Several apps (Samsung Health, Google Fit, the phone itself…) can write the SAME steps into
+        // Health Connect, and the aggregate then adds them up. For the last 14 days the steps are read
+        // per source: Samsung Health if present (it matches the watch face), else the biggest single source — never a sum of copies.
+        // Inside one source, phone and watch records that overlap in time count once (watch wins).
         if (HealthPermission.getReadPermission(StepsRecord::class) in granted) {
             try {
                 val since = today.minusDays(13).atStartOfDay(zone).toInstant()
-                val recs = read(c, StepsRecord::class, since, Instant.now(), maxPages = 30)
+                val recs = read(c, StepsRecord::class, since, Instant.now(), maxPages = 40)
                 val watchType = androidx.health.connect.client.records.metadata.Device.TYPE_WATCH
                 recs.groupBy { it.startTime.atZone(zone).toLocalDate() }.forEach { (d, l) ->
-                    val watch = l.filter { it.metadata.device?.type == watchType }
-                    if (watch.isEmpty()) return@forEach
-                    val ws = watch.map { it.startTime.toEpochMilli() to it.endTime.toEpochMilli() }
-                    val phoneOnly = l.filter { it.metadata.device?.type != watchType }.filter { r ->
-                        val a = r.startTime.toEpochMilli(); val b = r.endTime.toEpochMilli()
-                        ws.none { (x, y) -> a < y && b > x }
+                    val perSource = l.groupBy { it.metadata.dataOrigin.packageName }.map { (pkg, rl) ->
+                        val watch = rl.filter { it.metadata.device?.type == watchType }
+                        val ws = watch.map { it.startTime.toEpochMilli() to it.endTime.toEpochMilli() }
+                        val other = rl.filter { it.metadata.device?.type != watchType }.filter { r ->
+                            val x0 = r.startTime.toEpochMilli(); val x1 = r.endTime.toEpochMilli()
+                            ws.none { (y0, y1) -> x0 < y1 && x1 > y0 }
+                        }
+                        StepSource(pkg, watch.sumOf { it.count }, other.sumOf { it.count })
                     }
-                    val total = watch.sumOf { it.count } + phoneOnly.sumOf { it.count }
-                    upd(d.atStartOfDay(zone).toInstant().toEpochMilli()) { it.copy(steps = total) }
+                    val dayMs = d.atStartOfDay(zone).toInstant().toEpochMilli()
+                    stepSources[dayMs] = perSource
+                    // Samsung Health is the reference (the same number as on the watch face); otherwise the biggest single source.
+                    val pick = perSource.firstOrNull { it.pkg.contains("shealth") } ?: perSource.maxByOrNull { it.total }
+                    pick?.let { best -> upd(dayMs) { it.copy(steps = best.total) } }
                 }
             } catch (_: Exception) {}
         }
