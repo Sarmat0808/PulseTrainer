@@ -251,56 +251,62 @@ private fun CoachBadge(onClick: () -> Unit) {
     }
 }
 
+/** One line of the coach panel: big, bold, easy to read on the move. */
+@Composable
+private fun Big(text: String, color: Color = Color.White, size: Int = 19, bold: Boolean = true) {
+    Text(text, fontSize = size.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium, color = color,
+        textAlign = TextAlign.Center, lineHeight = (size + 3).sp, modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp))
+}
+
 /**
- * Coach panel (swipe up): the full advice, what the numbers mean right now and what to do —
- * everything worth knowing during the workout, in one scrolling list.
+ * Coach panel (swipe up): the advice in a few big words, then the key numbers.
+ * Short explanations are folded under «Справка».
  */
 @Composable
 private fun CoachPanel(s: WorkoutEngine.Ui, hr: Int?, onClose: () -> Unit) {
     val b = s.bounds
+    var help by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         ListScreen {
-            item { Text("Тренер", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Colors.wait) }
+            item { Big("Тренер", Colors.wait, 20) }
             val last = s.coachLog.lastOrNull()
-            if (last != null) item {
-                Text(last.full, fontSize = 16.sp, color = Color.White, textAlign = TextAlign.Center, lineHeight = 19.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp))
-            } else item { Line("Пока всё идёт хорошо — советов нет", Colors.ready, 15) }
-            // ---- right now ----
-            item { Line("Сейчас", Colors.dim, 14, bold = true) }
-            hr?.let { h -> item { Line("Пульс $h · Z${Physiology.zoneOf(h, b)} · макс. ${s.maxHr}", Color.White, 15) } }
-            item { Line("Зона 2 (сердце, жир): ${b[1]}–${b[2]}", Colors.zone[2], 15) }
-            item { Line("Всего ${fmtDuration(s.elapsedSec)} · ${s.kcal} ккал · ср. пульс ${s.avgHr}", Color.White, 15) }
-            if (s.prevSegs.isNotEmpty()) item {
-                Line((s.prevSegs.map { "${it.first.short} ${fmtDuration(it.second)}" } + "${s.type.short} ${fmtDuration(s.segElapsedSec)} (сейчас, ${s.segKcal} ккал)")
-                    .joinToString(" → "), Colors.dim, 14)
+            item {
+                if (last != null) Big(last.short, if (last.level == 2) Colors.wait else Color.White, 22)
+                else Big("Всё хорошо ✓", Colors.ready, 22)
             }
-            if (s.type.mode == Mode.SETS || s.hrrList.isNotEmpty()) {
-                item { Line("Подходов всего: ${s.setsTotal}", Color.White, 15) }
-                if (s.hrrList.isNotEmpty()) {
+            if (last != null) item { Big(last.full, Colors.dim, 16, bold = false) }
+            hr?.let { h -> item { Big("♥ $h · Z${Physiology.zoneOf(h, b)}", Colors.zone[Physiology.zoneOf(h, b)], 22) } }
+            item { Big("Z2: ${b[1]}–${b[2]}", Colors.zone[2]) }
+            if (s.type.mode == Mode.CARDIO) item { Big("В Z2–3: ${s.z23Min} мин") }
+            item { Big("${fmtDuration(s.elapsedSec)} · ${s.kcal} ккал") }
+            if (s.prevSegs.isNotEmpty()) {
+                s.prevSegs.forEach { (t, sec) -> item { Big("${t.short} ${fmtDuration(sec)}", Colors.dim, 17) } }
+                item { Big("${s.type.short} ${fmtDuration(s.segElapsedSec)} ← сейчас", Color.White, 17) }
+            }
+            if (s.type.mode == Mode.SETS) {
+                item { Big("Подходов: ${s.setsTotal}") }
+                if (s.hrrList.size >= 2) {
                     val first = s.hrrList.take(3).average().toInt()
                     val now = s.hrrList.takeLast(3).average().toInt()
-                    item {
-                        Line("Спад пульса за 1 мин отдыха: в начале −$first, сейчас −$now" +
-                            if (s.hrrList.size >= 6 && now < first * 0.6) " — устали" else if (now >= 20) " — отлично" else "",
-                            if (s.hrrList.size >= 6 && now < first * 0.6) Colors.wait else Color.White, 15)
-                    }
+                    val tired = s.hrrList.size >= 6 && now < first * 0.6
+                    item { Big("Спад: −$first → −$now", if (tired) Colors.wait else Color.White) }
                 }
-                item { Line("Следующий подход: пульс ниже ${s.readyHr} и отдых не меньше ${s.minRest} с", Colors.dim, 14) }
+                item { Big("Подход: ♥ ≤ ${s.readyHr}", Colors.dim, 17) }
             }
-            if (s.type.mode == Mode.CARDIO) item { Line("Минут в Z2–3: ${s.z23Min} · нагрузка ${s.trimp}", Color.White, 15) }
-            if (s.distanceM > 0) item { Line("Дистанция ${fmtKm(s.distanceM)} км", Color.White, 15) }
-            // ---- how to read ----
-            item { Line("Как понимать", Colors.dim, 14, bold = true) }
-            item { Line("Спад пульса — на сколько ударов пульс падает за первую минуту отдыха. 20+ отлично, 12–20 норма, меньше 12 или вдвое ниже начала — усталость.", Colors.dim, 14) }
-            item { Line("Z1–Z5 — зоны пульса. Z2 — можно говорить фразами: лучшее для сердца и восстановления. Z4–5 — коротко, это тяжело.", Colors.dim, 14) }
+            if (s.distanceM > 0) item { Big("${fmtKm(s.distanceM)} км") }
             if (s.coachLog.size > 1) {
-                item { Line("Ранее", Colors.dim, 14, bold = true) }
-                s.coachLog.dropLast(1).reversed().forEach { m ->
-                    item { Line(clockFmt.format(Date(m.time)) + " · " + m.full, Colors.dim, 14) }
+                item { Big("Ранее", Colors.dim, 16) }
+                s.coachLog.dropLast(1).reversed().take(5).forEach { m ->
+                    item { Big(clockFmt.format(Date(m.time)) + " " + m.short, Colors.dim, 16, bold = false) }
                 }
             }
-            item { WideBtn("Закрыть", Colors.card) { onClose() } }
+            item { WideBtn(if (help) "Скрыть справку" else "Справка", Colors.card) { help = !help } }
+            if (help) {
+                item { Big("Спад — на сколько падает пульс за 1 мин отдыха. 20+ отлично, меньше 12 — усталость.", Colors.dim, 16, bold = false) }
+                item { Big("Z2 — говорите фразами. Лучшее для сердца.", Colors.dim, 16, bold = false) }
+                item { Big("Z4–5 — тяжело, недолго.", Colors.dim, 16, bold = false) }
+            }
+            item { WideBtn("Закрыть", Colors.action) { onClose() } }
         }
     }
 }

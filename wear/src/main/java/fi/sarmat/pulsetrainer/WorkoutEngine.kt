@@ -640,7 +640,7 @@ object WorkoutEngine {
         }
         if (!ready && phaseSec >= SLOW_RECOVERY_SEC && !adviceGiven) {
             adviceGiven = true
-            advice = "Пульс падает медленно — отдохните ещё или облегчите подход"
+            advice = "Пульс медленно падает. Отдохните дольше или облегчите вес."
             adviceShort = "Отдохните подольше"
             note(adviceShort!!, advice!!, 0)
         }
@@ -732,7 +732,7 @@ object WorkoutEngine {
         if (cur != null && cur >= max * 0.97) nearMaxSec++ else nearMaxSec = 0
         if (nearMaxSec >= 45 && now - lastSafety > 5 * 60_000L) {
             lastSafety = now
-            advice = "Пульс у максимума ($cur) — сбавьте темп и подышите"
+            advice = "Пульс $cur — у максимума. Сбавьте темп."
             adviceShort = "Пульс у максимума — сбавьте"
             adviceAt = activeSec
             note(adviceShort!!, advice!!)
@@ -744,13 +744,12 @@ object WorkoutEngine {
         val first = hrr.take(3).takeIf { it.size == 3 }?.average()
         val last = hrr.takeLast(3).average()
         val msg: Pair<String, String>? = when {
-            strength && min >= 75 -> "Пора заканчивать" to "Уже $min мин силовой — пора заканчивать: дальше качество подходов падает, а восстановление затянется."
+            strength && min >= 75 -> "Пора заканчивать" to "$min мин силовой. Дальше подходы хуже — заканчивайте."
             strength && hrr.size >= 6 && first != null && last < first * 0.6 ->
-                "Пора заканчивать" to ("Восстановление пульса упало почти вдвое: в начале пульс за минуту отдыха падал на ~${first.toInt()}, " +
-                    "сейчас на ~${last.toInt()}. Это усталость — на сегодня достаточно. Заминка 5–10 мин и вода.")
-            strength && slowRests >= 2 -> "Лучше закончить" to "Пульс уже два раза долго не восстанавливается между подходами — лучше закончить или перейти на лёгкую заминку."
-            !strength && type == WorkoutType.WALK && min >= 120 -> "Можно заканчивать" to "2 часа ходьбы — отличный объём, можно заканчивать."
-            !strength && type != WorkoutType.WALK && type.mode == Mode.CARDIO && min >= 90 -> "Можно заканчивать" to "$min мин — хороший объём. Можно заканчивать, выпейте воды."
+                "Пора заканчивать" to "Спад пульса: было −${first.toInt()}, стало −${last.toInt()}. Устали. Заминка 5–10 мин и вода."
+            strength && slowRests >= 2 -> "Лучше закончить" to "Пульс дважды долго не падал. Лучше заминка."
+            !strength && type == WorkoutType.WALK && min >= 120 -> "Можно заканчивать" to "2 часа ходьбы — отличный объём."
+            !strength && type != WorkoutType.WALK && type.mode == Mode.CARDIO && min >= 90 -> "Можно заканчивать" to "$min мин — хороший объём. Попейте воды."
             else -> null
         }
         if (msg != null) { endShort = msg.first; endAdvice = msg.second; note(msg.first, msg.second) }
@@ -786,9 +785,9 @@ object WorkoutEngine {
                 when {
                     lastLapSec != null && type.gps && (activeSec - lapEndActive) < 40 ->
                         "Км ${laps.size}: ${fmtDurationShort(lastLapSec!!)}" to 1
-                    z >= 4 && type != WorkoutType.RUN -> "Тяжело · Z2 = ${bounds[1]}–${bounds[2]}" to 2
-                    z <= 1 && activeSec > 300 -> "Можно прибавить: ${bounds[1]}+" to 0
-                    z in 2..3 -> "✓ Z$z — хорошо для сердца" to 1
+                    z >= 4 && type != WorkoutType.RUN -> "Тяжело — сбавь" to 2
+                    z <= 1 && activeSec > 300 -> "Прибавь: ♥ ${bounds[1]}+" to 0
+                    z in 2..3 -> "✓ Z$z — отлично" to 1
                     else -> null to 0
                 }
             }
