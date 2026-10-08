@@ -73,12 +73,52 @@ private val clockFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun WorkoutScreen(onSwitch: () -> Unit) {
-    KeepScreenOn()
+    // No forced screen-on: the screen dims normally and, with Always-On Display, shows the low-power view.
+    val amb by MainActivity.ambient.collectAsState()
     // The workout layout is sized for the round screen: fixed text scale so nothing is cut off.
     val base = androidx.compose.ui.platform.LocalDensity.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, 1f)
-    ) { WorkoutContent(onSwitch) }
+    ) { if (amb) AmbientWorkout() else WorkoutContent(onSwitch) }
+}
+
+/**
+ * Always-On view: black screen, thin grey/white text, no coloured ring, no animations.
+ * Heart rate refreshes every 5 s (not every second), and the content shifts a few pixels
+ * every minute so the OLED screen doesn't burn in.
+ */
+@Composable
+private fun AmbientWorkout() {
+    val tick by MainActivity.ambientTick.collectAsState()
+    var snap by remember { mutableStateOf(WorkoutEngine.ui.value) }
+    LaunchedEffect(Unit) { while (true) { snap = WorkoutEngine.ui.value; delay(5000) } }
+    val s = snap
+    val strap = HrSensor.bpm.value
+    val hr = if (HrSensor.status.value == HrSensor.Status.CONNECTED && strap != null && s.hrFromStrap) strap else s.hr
+    val shift = ((tick % 3) - 1) * 4
+    val dim = Color(0xFFB0B0B0)
+    Box(Modifier.fillMaxSize().background(Color.Black).padding(start = (8 + shift).dp, top = (8 + shift).dp, end = 8.dp, bottom = 8.dp),
+        contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(clockFmt.format(Date()) + "  " + fmtDuration(s.elapsedSec), fontSize = 18.sp, color = dim, maxLines = 1)
+            Text(s.type.short + if (s.prevSegs.isNotEmpty()) " " + fmtDuration(s.segElapsedSec) else "", fontSize = 15.sp, color = dim, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(hr?.toString() ?: "--", fontSize = 44.sp, color = Color.White, fontWeight = FontWeight.Light, lineHeight = 46.sp)
+                val z = hr?.let { Physiology.zoneOf(it, s.bounds) } ?: 0
+                if (z > 0) Text(" Z$z", fontSize = 17.sp, color = dim)
+            }
+            val c = cells(s).take(2)
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                c.forEach { cell ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(cell.value, fontSize = 20.sp, color = Color.White, fontWeight = FontWeight.Light, maxLines = 1)
+                        Text(cell.label, fontSize = 12.sp, color = dim, maxLines = 1)
+                    }
+                }
+            }
+            if (s.coachUnseen) Text("▲ Тренер: новый совет", fontSize = 13.sp, color = dim)
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

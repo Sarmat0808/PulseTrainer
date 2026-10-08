@@ -87,6 +87,7 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
                     delay((next - System.currentTimeMillis()).coerceAtLeast(10))
                     next += 1000
                     WorkoutEngine.tick()
+                    gpsWatch()
                 }
             }
         }
@@ -141,7 +142,8 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
 
     override fun reconfigure(type: WorkoutType) {
         exerciseHr.ensure(type)
-        if (type.gps) startGps()
+        if (type.gps && !gpsWanted) { gpsWanted = true; gpsSince = android.os.SystemClock.elapsedRealtime() }
+        gpsDisabled = !locationEnabled()
         if (type.repCount) repCounter.start(type) else repCounter.stop()
         if (type.climb || type.steps || type.gps) { climbSensor.start(); climbOn = true } else { climbSensor.stop(); climbOn = false }
         climbSensor.reset()
@@ -156,7 +158,7 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
 
     override fun stopped() {
         tickJob?.cancel(); tickJob = null
-        stopGps()
+        stopGps(); gpsWanted = false
         repCounter.stop()
         watchHr.stop()
         exerciseHr.stop()
@@ -180,6 +182,26 @@ class WorkoutService : LifecycleService(), WorkoutEngine.Hooks, LocationListener
             gpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
         } catch (_: Exception) {}
     }
+
+    // The backup GPS is lazy: Health Services (ExerciseClient) gives the points; LocationManager starts only
+    // when no point came for 20 s (no fix from Health Services, or it went silent), and stops again a minute
+    // after Health Services delivers normally — no double GPS work while everything is fine.
+    private var gpsWanted = false
+    private var gpsSince = 0L
+    private var gpsOnAt = 0L
+
+    private fun gpsWatch() {
+        if (!gpsWanted) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val last = exerciseHr.lastLocationAt
+        val silent = if (last == 0L) now - gpsSince > 20_000 else now - last > 20_000
+        if (!gpsOn && silent) { startGps(); gpsOnAt = now }
+        else if (gpsOn && last != 0L && now - last < 3_000 && now - gpsOnAt > 60_000) stopGps()
+    }
+
+    private fun locationEnabled(): Boolean = try {
+        getSystemService(LocationManager::class.java)?.isProviderEnabled(LocationManager.GPS_PROVIDER) ?: true
+    } catch (_: Exception) { true }
 
     private fun stopGps() {
         if (!gpsOn) return

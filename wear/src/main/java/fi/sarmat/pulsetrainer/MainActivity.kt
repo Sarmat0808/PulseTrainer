@@ -57,6 +57,10 @@ class MainActivity : ComponentActivity() {
         val pendingStart = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
         /** A screen to open (from the phone), e.g. "stress". */
         val pendingOpen = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+        /** The screen is in Always-On (ambient) mode: show the low-power workout view. */
+        val ambient = kotlinx.coroutines.flow.MutableStateFlow(false)
+        /** Ticks once a minute in ambient mode (system update). */
+        val ambientTick = kotlinx.coroutines.flow.MutableStateFlow(0)
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -67,6 +71,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Always-On Display: when the screen dims during a workout, switch to a dark, low-power view
+        // instead of keeping the full bright screen on.
+        lifecycle.addObserver(androidx.wear.ambient.AmbientLifecycleObserver(this, object : androidx.wear.ambient.AmbientLifecycleObserver.AmbientLifecycleCallback {
+            override fun onEnterAmbient(ambientDetails: androidx.wear.ambient.AmbientLifecycleObserver.AmbientDetails) { ambient.value = true }
+            override fun onExitAmbient() { ambient.value = false }
+            override fun onUpdateAmbient() { ambientTick.value++ }
+        }))
         if (savedInstanceState == null) {
             intent?.getStringExtra("start")?.let { pendingStart.value = it }
             intent?.getStringExtra("open")?.let { pendingOpen.value = it }

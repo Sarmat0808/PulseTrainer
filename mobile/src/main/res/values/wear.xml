@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@array/android_wear_capabilities">
+    <!-- PulseTrainer is installed here: the other device sends only to nodes that have it. -->
+    <string-array name="android_wear_capabilities" translatable="false">
+        <item>pulsetrainer_phone</item>
+    </string-array>
+</resources>

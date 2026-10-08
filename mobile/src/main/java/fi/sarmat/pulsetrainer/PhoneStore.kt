@@ -121,7 +121,7 @@ object PhoneStore {
         favorites.value = l
         prefs.edit().putString("fav", l.joinToString(",") { it.name }).apply()
         try {
-            val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
+            val nodes = watchNodes(ctx)
             nodes.forEach { Wearable.getMessageClient(ctx).sendMessage(it.id, Protocol.PATH_FAV, l.joinToString(",") { t -> t.name }.toByteArray()).await() }
         } catch (_: Exception) {}
     }
@@ -250,7 +250,7 @@ object PhoneStore {
                     o.put("steps", days.value.lastOrNull()?.steps ?: -1L)
                 }
                 .put("headline", a.headline).put("plan", JSONArray(a.plan.take(3))).put("t", System.currentTimeMillis()).toString()
-            val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
+            val nodes = watchNodes(ctx)
             nodes.forEach { Wearable.getMessageClient(ctx).sendMessage(it.id, Protocol.PATH_COACH, json.toByteArray()).await() }
         } catch (_: Exception) {}
     }
@@ -345,7 +345,7 @@ object PhoneStore {
             HealthData.writeWeight(ctx, p.weightKg)
         }
         try {
-            val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
+            val nodes = watchNodes(ctx)
             nodes.forEach { Wearable.getMessageClient(ctx).sendMessage(it.id, Protocol.PATH_PROFILE_SET, json.toByteArray()).await() }
         } catch (_: Exception) {}
     }
@@ -554,8 +554,19 @@ object PhoneStore {
 
     // ---------- Commands to the watch ----------
 
+    /**
+     * Watches that have PulseTrainer installed and are reachable now (CapabilityClient) — no blind sends.
+     * If the capability service fails, falls back to all connected nodes.
+     */
+    suspend fun watchNodes(ctx: Context): List<com.google.android.gms.wearable.Node> = try {
+        Wearable.getCapabilityClient(ctx)
+            .getCapability(Protocol.CAP_WATCH, com.google.android.gms.wearable.CapabilityClient.FILTER_REACHABLE).await().nodes.toList()
+    } catch (_: Exception) {
+        try { Wearable.getNodeClient(ctx).connectedNodes.await() } catch (_: Exception) { emptyList() }
+    }
+
     suspend fun sendToWatch(ctx: Context, cmd: String): Boolean = try {
-        val nodes = Wearable.getNodeClient(ctx).connectedNodes.await()
+        val nodes = watchNodes(ctx)
         nodes.forEach { Wearable.getMessageClient(ctx).sendMessage(it.id, Protocol.PATH_CONTROL, cmd.toByteArray()).await() }
         nodes.isNotEmpty()
     } catch (_: Exception) { false }

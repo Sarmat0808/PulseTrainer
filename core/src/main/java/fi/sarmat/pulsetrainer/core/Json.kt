@@ -217,6 +217,10 @@ object WorkoutJson {
 
 /** Watch <-> phone messages. */
 object Protocol {
+    /** Capabilities declared in res/values/wear.xml of each app. */
+    const val CAP_PHONE = "pulsetrainer_phone"
+    const val CAP_WATCH = "pulsetrainer_watch"
+
     const val PATH_WORKOUT = "/workout/"          // DataItem with the finished session
     const val PATH_LIVE = "/live"                 // watch -> phone, every 2 s during a session
     const val PATH_CONTROL = "/control"           // phone -> watch commands

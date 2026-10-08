@@ -48,7 +48,11 @@ object PhoneLink {
         val bytes = live.toJson().toByteArray()
         if (now - nodesAt > 30_000) {
             nodesAt = now
-            Wearable.getNodeClient(ctx).connectedNodes.addOnSuccessListener { list ->
+            // Only phones with PulseTrainer installed (CapabilityClient), refreshed every 30 s.
+            Wearable.getCapabilityClient(ctx)
+                .getCapability(Protocol.CAP_PHONE, com.google.android.gms.wearable.CapabilityClient.FILTER_REACHABLE)
+                .addOnSuccessListener { info ->
+                val list = info.nodes
                 nodes = list.map { it.id }
                 nodes.forEach { client.sendMessage(it, Protocol.PATH_LIVE, bytes) }
             }
