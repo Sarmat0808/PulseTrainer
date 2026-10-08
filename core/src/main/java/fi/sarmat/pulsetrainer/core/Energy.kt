@@ -12,7 +12,7 @@ import kotlin.math.roundToInt
  *   calm (< 8 % of reserve) recharges slowly, everyday activity/stress drains a little,
  *   workouts drain by their intensity. Gaps without samples count as light daily activity.
  * Rates are tuned so a normal day with a 1-hour moderate workout uses ~50–70 points,
- * close to how the commercial scores behave.
+ * close to how the commercial scores behave (recalibrated Oct 2026: earlier rates drained a full training day to 0).
  */
 object Energy {
 
@@ -56,13 +56,16 @@ object Energy {
     /** Points per minute at this heart rate (negative = drain). */
     private fun rate(hr: Int, rest: Int, max: Int): Double {
         val r = (hr - rest).toDouble() / (max - rest).coerceAtLeast(30)
+        // Calibrated to Garmin-like behaviour: an ordinary active day uses ~25–35 points,
+        // a 1-hour moderate workout ~15–20, a hard hour ~25–30; calm moments recharge slowly.
         return when {
-            r < 0.08 -> 0.04
-            r < 0.20 -> -0.04
-            r < 0.35 -> -0.12
-            r < 0.55 -> -0.30
-            r < 0.75 -> -0.50
-            else -> -0.80
+            r < 0.10 -> 0.05     // calm, sitting relaxed: +3 per hour
+            r < 0.20 -> -0.03    // everyday activity
+            r < 0.35 -> -0.045   // walking, chores
+            r < 0.50 -> -0.15    // easy cardio (zone 1–2)
+            r < 0.65 -> -0.30    // moderate (zone 3)
+            r < 0.80 -> -0.45    // hard (zone 4)
+            else -> -0.70        // maximal
         }
     }
 
@@ -86,9 +89,9 @@ object Energy {
             val stepEnd = minOf(now, next?.first?.let { if (it > t) it else t + 60_000 } ?: now, t + 10 * 60_000)
             val min = (stepEnd - t) / 60000.0
             val hr = next?.takeIf { it.first - t <= 10 * 60_000 }?.second
-            val rt = if (hr != null) rate(hr, rest, max) else -0.04
+            val rt = if (hr != null) rate(hr, rest, max) else -0.03
             val delta = rt * min
-            if (delta > 0) recharge += delta else if (rt <= -0.30) drainWork += -delta else drainDay += -delta
+            if (delta > 0) recharge += delta else if (rt <= -0.15) drainWork += -delta else drainDay += -delta
             v = (v + delta).coerceIn(0.0, 100.0)
             t = if (stepEnd > t) stepEnd else t + 60_000
             if (t - lastMark >= 15 * 60_000 || t >= now) { series += t to v.roundToInt(); lastMark = t }

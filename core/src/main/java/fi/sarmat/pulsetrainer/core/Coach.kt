@@ -223,14 +223,16 @@ object Coach {
             } else factors += Factor("Нагрузка: собираем вашу норму (нужно ~4 недели данных)", 0, "load")
         } else missing += "тренировки за 4 недели"
 
-        // ---- Recovery after the last hard session (own or from Samsung Health) ----
-        val last = workouts.maxByOrNull { it.end }
-        val hoursSince = last?.let { (now - it.end) / 3600_000.0 }
-        if (last != null && hoursSince != null) {
-            val left = Physiology.recoveryHours(last.segments) - hoursSince
-            if (left > 0) factors += Factor("После «${last.title}» прошло ${hoursSince.roundToInt()} ч из ~${Physiology.recoveryHours(last.segments)} ч восстановления", -minOf(20, (left / 2).roundToInt() + 5), "load")
+        // ---- Recovery: the slowest unfinished recovery among recent sessions (own or from Samsung Health) ----
+        // Uses the same hours as the «Восстановление» card, so the two never contradict each other.
+        val recent = workouts.filter { Physiology.isRealWorkout(it) && it.end > now - 4 * DAY && it.end <= now }
+        val worst = recent.map { w -> w to (Physiology.recoveryHours(w.segments) - (now - w.end) / 3600_000.0) }.maxByOrNull { it.second }
+        if (worst != null && worst.second > 0) {
+            val left = worst.second
+            val pts = when { left > 36 -> -40; left > 24 -> -30; left > 12 -> -20; else -> -10 }
+            factors += Factor("Восстановление после «${worst.first.title}»: ещё ~${left.roundToInt()} ч", pts, "recovery")
         }
-        extNew.filter { it.trimp >= 80 && it.end > (last?.end ?: 0L) && now - it.end < 24 * 3600_000L }.maxByOrNull { it.end }?.let { e ->
+        extNew.filter { it.trimp >= 80 && it.end > (worst?.first?.end ?: 0L) && now - it.end < 24 * 3600_000L }.maxByOrNull { it.end }?.let { e ->
             factors += Factor("Вчера/сегодня: «${e.title}» ${e.minutes} мин — организм ещё восстанавливается", -8, "load")
         }
 
@@ -250,7 +252,7 @@ object Coach {
         } else missing += "ваше самочувствие (ответьте на 2 вопроса)"
 
         // Each area can take away only so much: several small minuses of one kind must not add up to "rest day".
-        val caps = mapOf("sleep" to 30, "rest" to 20, "hrv" to 30, "load" to 25, "feel" to 30)
+        val caps = mapOf("sleep" to 30, "rest" to 20, "hrv" to 30, "load" to 25, "feel" to 30, "recovery" to 40)
         val lost = factors.groupBy { it.group }.map { (g, l) -> minOf(-l.sumOf { it.points }, caps[g] ?: 100) }.sum()
         var score = (100 - lost).coerceIn(0, 100)
         // Without enough data the app must not claim "excellent readiness".
@@ -283,7 +285,17 @@ object Coach {
         // ---- Today's plan ----
         val plan = ArrayList<String>()
         val headline: String
+        val dayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val doneToday = workouts.filter { it.start >= dayStart }.sumOf { it.trimp } + extNew.filter { it.start >= dayStart }.sumOf { it.trimp }
         when {
+            doneToday >= 80 -> {
+                headline = "Тренировка сегодня уже сделана ✓"
+                type = DayType.REST
+                plan += "Сегодня больше без нагрузок — организм строит мышцы и сердце во время отдыха."
+                plan += "Белок 25–40 г в ближайшие часы, вода, ужин за 2–3 ч до сна."
+                plan += "Спокойная прогулка 10–20 мин можно — она ускоряет восстановление."
+                plan += "Сон 7,5–9 ч — главный способ восстановиться к следующей тренировке."
+            }
             level == 2 -> {
                 headline = "Сегодня — восстановление"
                 type = if (score < 25) DayType.REST else DayType.WALK
