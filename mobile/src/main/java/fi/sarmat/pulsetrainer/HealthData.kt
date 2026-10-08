@@ -259,6 +259,28 @@ object HealthData {
                 }
             } catch (_: Exception) {}
         }
+        // Samsung Health puts the phone's and the watch's steps into Health Connect as separate records.
+        // The sum counts the same walk twice (phone in pocket + watch on wrist). Samsung itself shows the
+        // watch steps and adds the phone only while the watch was off. Same here for the last 14 days:
+        // all watch records + phone records that don't overlap any watch record.
+        if (HealthPermission.getReadPermission(StepsRecord::class) in granted) {
+            try {
+                val since = today.minusDays(13).atStartOfDay(zone).toInstant()
+                val recs = read(c, StepsRecord::class, since, Instant.now(), maxPages = 30)
+                val watchType = androidx.health.connect.client.records.metadata.Device.TYPE_WATCH
+                recs.groupBy { it.startTime.atZone(zone).toLocalDate() }.forEach { (d, l) ->
+                    val watch = l.filter { it.metadata.device?.type == watchType }
+                    if (watch.isEmpty()) return@forEach
+                    val ws = watch.map { it.startTime.toEpochMilli() to it.endTime.toEpochMilli() }
+                    val phoneOnly = l.filter { it.metadata.device?.type != watchType }.filter { r ->
+                        val a = r.startTime.toEpochMilli(); val b = r.endTime.toEpochMilli()
+                        ws.none { (x, y) -> a < y && b > x }
+                    }
+                    val total = watch.sumOf { it.count } + phoneOnly.sumOf { it.count }
+                    upd(d.atStartOfDay(zone).toInstant().toEpochMilli()) { it.copy(steps = total) }
+                }
+            } catch (_: Exception) {}
+        }
 
         // ---- Heart-rate samples of the last weeks: night resting pulse + load of other apps' workouts ----
         val ext = ArrayList<ExtWorkout>()
