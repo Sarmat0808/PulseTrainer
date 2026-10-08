@@ -7,6 +7,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -129,7 +131,7 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
     Box(
         Modifier.fillMaxSize().pointerInput(Unit) {
             // Swipe up from anywhere = the coach panel.
-            androidx.compose.foundation.gestures.detectVerticalDragGestures(
+            detectVerticalDragGestures(
                 onDragStart = { drag = 0f },
                 onDragEnd = { if (drag < -60f) onCoach() },
             ) { _, d -> drag += d }
