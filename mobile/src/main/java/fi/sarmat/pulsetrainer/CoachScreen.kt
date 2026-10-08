@@ -219,15 +219,18 @@ private fun StatRow(label: String, value: String, sub: String?) {
 @Composable
 private fun WeightChart(points: List<Pair<Long, Double>>) {
     if (points.size < 2) return
+    // Trend = average of the last 7 days at each point: hides day-to-day water swings.
+    val trend = points.map { (t, _) -> t to points.filter { it.first in (t - 7 * 86400_000L)..t }.map { it.second }.average() }
     Canvas(Modifier.fillMaxWidth().height(110.dp)) {
         val t0 = points.first().first; val t1 = points.last().first.coerceAtLeast(t0 + 1)
         val lo = points.minOf { it.second } - 0.5; val hi = points.maxOf { it.second } + 0.5
         fun pt(t: Long, v: Double) = Offset((t - t0).toFloat() / (t1 - t0) * size.width, (size.height - (v - lo) / (hi - lo) * size.height).toFloat())
+        points.forEach { (t, v) -> drawCircle(Color.White.copy(alpha = 0.55f), 4f, pt(t, v)) }
         val path = Path()
-        points.forEachIndexed { i, (t, v) -> val o = pt(t, v); if (i == 0) path.moveTo(o.x, o.y) else path.lineTo(o.x, o.y) }
-        drawPath(path, Accent, style = Stroke(4f, cap = StrokeCap.Round))
-        points.forEach { (t, v) -> drawCircle(Color.White, 5f, pt(t, v)) }
+        trend.forEachIndexed { i, (t, v) -> val o = pt(t, v); if (i == 0) path.moveTo(o.x, o.y) else path.lineTo(o.x, o.y) }
+        drawPath(path, Accent, style = Stroke(5f, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
     }
+    Text("Точки — взвешивания, линия — среднее за 7 дней (настоящий тренд без колебаний воды).", color = Dim, fontSize = 13.sp)
 }
 
 // ======================= Profile tab =======================
@@ -285,6 +288,7 @@ fun ProfileTab() {
                 Stepper(if (p.maxHrOverride == null) "Макс. пульс · формула" else "Макс. пульс · свой", "${Physiology.maxHr(p)}", 1.0) { d ->
                     p = p.copy(maxHrOverride = (Physiology.maxHr(p) + d.toInt()).coerceIn(120, 220))
                 }
+                if (p.maxHrOverride == null) Text("Знаете свой максимум (тест, забег, самый тяжёлый интервал)? Нажмите ± — станет «свой».", color = Dim, fontSize = 14.sp)
                 if (p.maxHrOverride != null) Text("Сбросить макс. пульс к формуле (208 − 0,7 × возраст)", color = Accent, fontSize = 15.sp,
                     modifier = Modifier.clickable { p = p.copy(maxHrOverride = null) })
                 val b = Physiology.zoneBounds(p)
@@ -297,7 +301,7 @@ fun ProfileTab() {
                 }
                 Row(Modifier.fillMaxWidth().clickable { p = p.copy(karvonen = !p.karvonen) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Метод расчёта зон", color = Color.White, fontSize = 15.sp)
+                        Text("Метод расчёта зон: " + if (p.karvonen) "Карвонен" else "% от макс. пульса", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         Text(if (p.karvonen) "Карвонен (от резерва пульса) — зоны выше, для тренированных"
                             else "% от макс. пульса — как в Polar и Samsung (рекомендуется)", color = Dim, fontSize = 15.sp)
                     }
@@ -401,14 +405,29 @@ private fun SyncLine(ok: Boolean, title: String, sub: String) {
 
 // ======================= Body measurements =======================
 
+/** How to measure each value correctly (shown folded under the field). */
+private object MeasureTips {
+    const val WEIGHT = "Утром после туалета, до еды и воды, в белье, на одних и тех же весах. Вес за день гуляет на 0,5–1,5 кг (вода, соль) — смотрите на линию среднего за 7 дней."
+    const val WAIST = "Стоя, расслабленно, на спокойном выдохе — живот не втягивать. Лента горизонтально по уровню пупка, плотно, но не сдавливая кожу."
+    const val CHEST = "Стоя, руки опущены, мышцы расслаблены, на спокойном выдохе. Лента под лопатками и по самой выступающей части груди, горизонтально."
+    const val ARM = "Всегда одну руку и одним способом. Лучше напряжённый: рука согнута под 90°, кулак сжат, бицепс напряжён — лента по самой высокой точке."
+    const val THIGH = "Стоя, вес на обе ноги, мышцы расслаблены. Лента горизонтально по самой широкой части — сразу под ягодичной складкой. Всегда одна нога."
+    const val NECK = "Стоя, смотрите прямо, плечи опущены. Лента сразу под кадыком. Нужна, чтобы посчитать % жира, если его не с чего взять."
+    const val FAT = "Если есть умные весы или калипер — внесите. Оставьте пустым — посчитаю по талии, шее и росту (метод ВМС США, точность ±3–4 %)."
+    const val GENERAL = "Общее правило: утром до еды и тренировки, одной и той же нерастягивающейся лентой, лента прилегает без вдавливания. Мерьте 2 раза и берите среднее. Раз в 1–2 недели достаточно."
+}
+
 @Composable
 private fun BodyCard() {
     val entries by PhoneStore.body.collectAsState()
+    val profile by PhoneStore.profile.collectAsState()
+    val pr = profile ?: Profile()
     var weight by remember { mutableStateOf("") }
     var waist by remember { mutableStateOf("") }
     var chest by remember { mutableStateOf("") }
     var arm by remember { mutableStateOf("") }
     var thigh by remember { mutableStateOf("") }
+    var neck by remember { mutableStateOf("") }
     var fat by remember { mutableStateOf("") }
     fun num(s: String) = s.replace(',', '.').toDoubleOrNull()
     val ctx = LocalContext.current
@@ -417,41 +436,60 @@ private fun BodyCard() {
     Section {
         Text("Замеры тела", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Text("Раз в 1–2 недели, утром. По талии тренер отличит рост мышц от жира.", color = Dim, fontSize = 15.sp)
+        Expander("Как мерить правильно") { Text(MeasureTips.GENERAL, color = Dim, fontSize = 14.sp) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NumField("Вес, кг", weight, Modifier.weight(1f)) { weight = it }
-            NumField("Талия, см", waist, Modifier.weight(1f)) { waist = it }
+            MeasureField("Вес, кг", weight, MeasureTips.WEIGHT, Modifier.weight(1f)) { weight = it }
+            MeasureField("Талия, см", waist, MeasureTips.WAIST, Modifier.weight(1f)) { waist = it }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NumField("Грудь, см", chest, Modifier.weight(1f)) { chest = it }
-            NumField("Бицепс, см", arm, Modifier.weight(1f)) { arm = it }
+            MeasureField("Грудь, см", chest, MeasureTips.CHEST, Modifier.weight(1f)) { chest = it }
+            MeasureField("Бицепс, см", arm, MeasureTips.ARM, Modifier.weight(1f)) { arm = it }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NumField("Бедро, см", thigh, Modifier.weight(1f)) { thigh = it }
-            NumField("Жир, %", fat, Modifier.weight(1f)) { fat = it }
+            MeasureField("Бедро, см", thigh, MeasureTips.THIGH, Modifier.weight(1f)) { thigh = it }
+            MeasureField("Шея, см", neck, MeasureTips.NECK, Modifier.weight(1f)) { neck = it }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MeasureField("Жир, %", fat, MeasureTips.FAT, Modifier.weight(1f)) { fat = it }
+            Box(Modifier.weight(1f))
         }
         Button(
             onClick = {
-                val e = fi.sarmat.pulsetrainer.core.BodyEntry(System.currentTimeMillis(), num(weight), num(waist), num(chest), num(arm), num(thigh), num(fat))
-                if (listOf(e.weightKg, e.waistCm, e.chestCm, e.armCm, e.thighCm, e.bodyFatPct).all { it == null }) {
+                val e = fi.sarmat.pulsetrainer.core.BodyEntry(System.currentTimeMillis(), num(weight), num(waist), num(chest), num(arm), num(thigh), num(fat), num(neck))
+                if (listOf(e.weightKg, e.waistCm, e.chestCm, e.armCm, e.thighCm, e.bodyFatPct, e.neckCm).all { it == null }) {
                     Toast.makeText(ctx, "Введите хотя бы одно значение", Toast.LENGTH_SHORT).show()
                 } else {
                     PhoneStore.addBody(e)
                     e.weightKg?.let { w ->
                         scope.launch { PhoneStore.profile.value?.let { p -> PhoneStore.updateProfile(ctx, p.copy(weightKg = w)) } }
                     }
-                    weight = ""; waist = ""; chest = ""; arm = ""; thigh = ""; fat = ""
+                    weight = ""; waist = ""; chest = ""; arm = ""; thigh = ""; neck = ""; fat = ""
                     Toast.makeText(ctx, "Замер сохранён", Toast.LENGTH_SHORT).show()
                 }
             },
             modifier = Modifier.fillMaxWidth()
         ) { Text("Сохранить замер") }
         entries.takeLast(6).reversed().forEach { e ->
+            val f = e.fatOrEstimate(pr.heightCm, pr.male)
             val parts = listOfNotNull(
                 e.weightKg?.let { "вес %.1f".format(it) }, e.waistCm?.let { "талия %.1f".format(it) }, e.chestCm?.let { "грудь %.1f".format(it) },
-                e.armCm?.let { "бицепс %.1f".format(it) }, e.thighCm?.let { "бедро %.1f".format(it) }, e.bodyFatPct?.let { "жир %.1f%%".format(it) },
+                e.armCm?.let { "бицепс %.1f".format(it) }, e.thighCm?.let { "бедро %.1f".format(it) }, e.neckCm?.let { "шея %.1f".format(it) },
+                f?.let { (v, est) -> "жир %.1f%%".format(v) + if (est) " (расчёт)" else "" },
             )
             Text("${dFmt.format(Date(e.time))}: " + parts.joinToString(", "), color = Color.White, fontSize = 15.sp)
         }
+    }
+}
+
+/** Input field + a folded "как мерить" tip right under it. */
+@Composable
+private fun MeasureField(label: String, value: String, tip: String, modifier: Modifier, onChange: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Column(modifier) {
+        NumField(label, value, Modifier.fillMaxWidth(), onChange)
+        Text(if (open) "▲ скрыть" else "ⓘ как мерить", color = Accent, fontSize = 14.sp,
+            modifier = Modifier.clickable { open = !open }.padding(vertical = 4.dp))
+        if (open) Text(tip, color = Dim, fontSize = 13.sp, lineHeight = 17.sp)
     }
 }
 
@@ -503,6 +541,9 @@ private fun RemindersCard() {
         else
             "Сначала данные Samsung Health (фазы сна, SpO₂, вес с весов), пропуски дополняются часами PulseTrainer.",
             color = Dim, fontSize = 14.sp)
+        val imp = PhoneStore.lastHcImport
+        Text(if (imp > 0) "Последний импорт из Samsung Health: " + SimpleDateFormat("d MMM, HH:mm", Locale("ru")).format(Date(imp))
+            else "Из Samsung Health ещё ничего не получено", color = if (imp > 0 && System.currentTimeMillis() - imp < 86400_000L) Good else Warn, fontSize = 14.sp)
     }
 }
 

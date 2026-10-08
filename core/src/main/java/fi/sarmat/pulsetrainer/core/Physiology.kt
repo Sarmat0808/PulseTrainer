@@ -2,6 +2,7 @@ package fi.sarmat.pulsetrainer.core
 
 import kotlin.math.ln
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -91,21 +92,27 @@ object Physiology {
         if (segments.sumOf { it.activeSec } < 300 && segments.sumOf { it.sets.size } < 3) return 0
         val trimp = segments.sumOf { it.trimp }
         val strengthSets = segments.filter { it.type.strength }.sumOf { it.sets.size }
+        // Hours until the next HARD session (Garmin/Firstbeat-like scale, max 72 h for one workout).
+        // Light zone-2 cardio is fine much earlier — that is said in the text.
         val cardio = when {
             trimp < 20 -> 0      // very light: no special recovery needed
-            trimp < 50 -> 12
-            trimp < 100 -> 24
-            trimp < 170 -> 36
-            trimp < 260 -> 48
-            else -> 72
+            trimp < 50 -> 8
+            trimp < 100 -> 16
+            trimp < 170 -> 28
+            trimp < 260 -> 40
+            else -> 56
         }
+        // Sets are found automatically and can be over-counted, so the scale is gentle:
+        // a full gym session (15–25 sets) ≈ 36–40 h, the same muscles again after ~48 h.
         val muscle = when {
             strengthSets < 3 -> 0      // one or two sets do not need recovery
-            strengthSets < 6 -> 12
-            strengthSets < 16 -> 48
-            else -> 72
+            strengthSets < 6 -> 10
+            strengthSets < 12 -> 20
+            strengthSets < 20 -> 30
+            else -> 40
         }
-        return max(cardio, muscle)
+        // Strength + cardio in one session: the bigger one counts fully, the smaller one by a quarter.
+        return (max(cardio, muscle) + min(cardio, muscle) / 4).coerceAtMost(72)
     }
 
     fun recoveryText(hours: Int, segments: List<Segment>): String {
@@ -113,7 +120,7 @@ object Physiology {
         val sb = StringBuilder()
         if (hours == 0) return "Нагрузка была лёгкой — специального восстановления не нужно."
         sb.append("Отдых до следующей тяжёлой тренировки: ~$hours ч.")
-        if (strength) sb.append(" Те же группы мышц — не раньше чем через 48 ч; для массы 2 раза в неделю на группу.")
+        if (strength) sb.append(" Те же группы мышц — через ~48 ч; другие группы или лёгкое кардио можно раньше.")
         sb.append(" Лёгкое кардио в зоне 2 (20–40 мин) можно уже завтра — оно ускоряет восстановление и укрепляет сердце.")
         return sb.toString()
     }

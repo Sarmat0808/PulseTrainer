@@ -241,6 +241,11 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                 Text(label, color = when (label) { "В норме" -> Good; "Слишком высокая" -> Danger; "Немного выше" -> Warn; else -> Accent },
                     fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text("За 7 дней: $week (обычно ~$avg в неделю)", color = Dim, fontSize = 15.sp)
+                if (avg >= 30) {
+                    val ratio = week.toDouble() / avg
+                    Text("Острая/хроническая (ACWR): ×${"%.1f".format(ratio)} · безопасно 0,8–1,3", fontSize = 15.sp,
+                        color = when { ratio > 1.5 -> Danger; ratio > 1.3 -> Warn; ratio < 0.8 -> Accent; else -> Good })
+                }
                 DayBars()
                 val extWeek = ext.filter { it.start > System.currentTimeMillis() - 7 * 86400_000L }
                 if (extWeek.isNotEmpty()) Expander("Тренировки из Samsung Health (${extWeek.size})") {

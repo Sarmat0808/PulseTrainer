@@ -92,16 +92,19 @@ private fun WorkoutContent(onSwitch: () -> Unit) {
     val pager = rememberPagerState(pageCount = { pages })
     val scope = rememberCoroutineScope()
 
-    // Bottom (back) button = open the menu, never leave the workout.
+    var coachOpen by remember { mutableStateOf(false) }
+    // Bottom (back) button = close the coach panel / open the menu, never leave the workout.
     BackHandler {
-        scope.launch { pager.animateScrollToPage(if (pager.currentPage == 1) 0 else 1) }
+        if (coachOpen) coachOpen = false
+        else scope.launch { pager.animateScrollToPage(if (pager.currentPage == 1) 0 else 1) }
     }
+    LaunchedEffect(coachOpen) { if (coachOpen) WorkoutEngine.markCoachSeen() }
     LaunchedEffect(s.type) { if (pager.currentPage != 0) pager.scrollToPage(0) }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), userScrollEnabled = !coachOpen) { page ->
             when (page) {
-                0 -> MainPage(s, hr, onSwitch)
+                0 -> MainPage(s, hr, onSwitch) { coachOpen = true }
                 1 -> ControlsPage(s, onSwitch) { scope.launch { pager.animateScrollToPage(0) } }
                 else -> MapPage(s)
             }
@@ -114,38 +117,60 @@ private fun WorkoutContent(onSwitch: () -> Unit) {
                 Box(Modifier.size(5.dp).clip(CircleShape).background(if (pager.currentPage == i) Color.White else Color.DarkGray))
             }
         }
+        if (coachOpen) Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } }) { CoachPanel(s, hr) { coachOpen = false } }
     }
 }
 
 @Composable
-private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit) {
+private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoach: () -> Unit) {
     val zone = hr?.let { Physiology.zoneOf(it, s.bounds) } ?: 0
     val zc = Colors.zone[zone]
-    Box(Modifier.fillMaxSize()) {
+    var drag by remember { mutableStateOf(0f) }
+    Box(
+        Modifier.fillMaxSize().pointerInput(Unit) {
+            // Swipe up from anywhere = the coach panel.
+            androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                onDragStart = { drag = 0f },
+                onDragEnd = { if (drag < -60f) onCoach() },
+            ) { _, d -> drag += d }
+        }
+    ) {
         ZoneRing(hr, s.bounds)
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
+            Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Time of day · sport icon · workout time
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(clockFmt.format(Date()), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                SportIcon(s.type, 16.dp, Colors.dim)
+            // Time of day · whole workout time — big and clear
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(clockFmt.format(Date()), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
                 Text(
-                    fmtDuration(s.elapsedSec) + when { s.paused -> " ⏸"; s.autoPaused -> " авто⏸"; else -> "" },
-                    fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (s.paused || s.autoPaused) Colors.wait else Colors.dim, maxLines = 1
+                    fmtDuration(s.elapsedSec) + when { s.paused -> " ⏸"; s.autoPaused -> " ⏸"; else -> "" },
+                    fontSize = 19.sp, fontWeight = FontWeight.Bold, color = if (s.paused || s.autoPaused) Colors.wait else Colors.dim, maxLines = 1
                 )
             }
-            // Big heart rate — long press = switch exercise
+            // Exercises of this workout: previous one and the current one with their own times.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                s.prevSegs.lastOrNull()?.let { (t, sec) ->
+                    SportIcon(t, 15.dp, Colors.dim)
+                    Text(fmtDuration(sec), fontSize = 15.sp, color = Colors.dim, maxLines = 1)
+                    Text(" →", fontSize = 15.sp, color = Colors.dim)
+                }
+                SportIcon(s.type, 16.dp, Color.White)
+                Text(
+                    if (s.prevSegs.isEmpty()) s.type.short else fmtDuration(s.segElapsedSec),
+                    fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1
+                )
+            }
+            // Heart rate — long press = switch exercise
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { Haptics.tick(); onSwitch() }) }
             ) {
-                Text(hr?.toString() ?: "--", fontSize = 50.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 52.sp)
-                Column(Modifier.padding(start = 4.dp)) {
-                    Text("♥ " + if (zone > 0) "З$zone" else "", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = zc)
-                    Text(if (hr == null) "нет пульса" else if (s.hrFromStrap) "H10" else "часы", fontSize = 13.sp,
+                Text(hr?.toString() ?: "--", fontSize = 42.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 44.sp)
+                Column(Modifier.padding(start = 5.dp)) {
+                    Text(if (zone > 0) "Z$zone" else "♥", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 18.sp)
+                    Text(if (hr == null) "нет" else if (s.hrFromStrap) "H10" else "часы", fontSize = 13.sp, lineHeight = 14.sp,
                         color = if (s.hrFromStrap) Colors.dim else Colors.wait)
                 }
             }
@@ -154,13 +179,85 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit) {
                 s.type.treadmill -> TreadmillBlock(s)
                 else -> Grid(cells(s))
             }
-            // Quiet coach line
-            val line = s.assist
-            if (line != null) Text(
-                line, fontSize = 13.sp, maxLines = 2, textAlign = TextAlign.Center, lineHeight = 15.sp,
-                color = when (s.assistLevel) { 1 -> Colors.ready; 2 -> Colors.wait; else -> Colors.dim },
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 1.dp)
-            )
+            // Bottom: a new coach message lights the badge; otherwise one short helper line.
+            if (s.coachUnseen) CoachBadge(onCoach)
+            else s.assist?.let { line ->
+                Text(
+                    line, fontSize = 14.sp, maxLines = 2, textAlign = TextAlign.Center, lineHeight = 16.sp,
+                    color = when (s.assistLevel) { 1 -> Colors.ready; 2 -> Colors.wait; else -> Colors.dim },
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 1.dp)
+                        .pointerInput(Unit) { detectTapGestures(onTap = { onCoach() }) }
+                )
+            }
+        }
+    }
+}
+
+/** "Тренер ▲" — calm pulsing badge: there's a new tip, swipe up (or tap) to read it. */
+@Composable
+private fun CoachBadge(onClick: () -> Unit) {
+    val tr = androidx.compose.animation.core.rememberInfiniteTransition(label = "coach")
+    val a by tr.animateFloat(0.55f, 1f, androidx.compose.animation.core.infiniteRepeatable(
+        androidx.compose.animation.core.tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
+    Box(
+        Modifier.padding(top = 3.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+            .background(Colors.wait.copy(alpha = a)).pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
+            .padding(horizontal = 14.dp, vertical = 3.dp)
+    ) {
+        Text("▲ Тренер: новый совет", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black, maxLines = 1)
+    }
+}
+
+/**
+ * Coach panel (swipe up): the full advice, what the numbers mean right now and what to do —
+ * everything worth knowing during the workout, in one scrolling list.
+ */
+@Composable
+private fun CoachPanel(s: WorkoutEngine.Ui, hr: Int?, onClose: () -> Unit) {
+    val b = s.bounds
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        ListScreen {
+            item { Text("Тренер", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Colors.wait) }
+            val last = s.coachLog.lastOrNull()
+            if (last != null) item {
+                Text(last.full, fontSize = 16.sp, color = Color.White, textAlign = TextAlign.Center, lineHeight = 19.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp))
+            } else item { Line("Пока всё идёт хорошо — советов нет", Colors.ready, 15) }
+            // ---- right now ----
+            item { Line("Сейчас", Colors.dim, 14, bold = true) }
+            hr?.let { h -> item { Line("Пульс $h · Z${Physiology.zoneOf(h, b)} · макс. ${s.maxHr}", Color.White, 15) } }
+            item { Line("Зона 2 (сердце, жир): ${b[1]}–${b[2]}", Colors.zone[2], 15) }
+            item { Line("Всего ${fmtDuration(s.elapsedSec)} · ${s.kcal} ккал · ср. пульс ${s.avgHr}", Color.White, 15) }
+            if (s.prevSegs.isNotEmpty()) item {
+                Line((s.prevSegs.map { "${it.first.short} ${fmtDuration(it.second)}" } + "${s.type.short} ${fmtDuration(s.segElapsedSec)} (сейчас, ${s.segKcal} ккал)")
+                    .joinToString(" → "), Colors.dim, 14)
+            }
+            if (s.type.mode == Mode.SETS || s.hrrList.isNotEmpty()) {
+                item { Line("Подходов всего: ${s.setsTotal}", Color.White, 15) }
+                if (s.hrrList.isNotEmpty()) {
+                    val first = s.hrrList.take(3).average().toInt()
+                    val now = s.hrrList.takeLast(3).average().toInt()
+                    item {
+                        Line("Спад пульса за 1 мин отдыха: в начале −$first, сейчас −$now" +
+                            if (s.hrrList.size >= 6 && now < first * 0.6) " — устали" else if (now >= 20) " — отлично" else "",
+                            if (s.hrrList.size >= 6 && now < first * 0.6) Colors.wait else Color.White, 15)
+                    }
+                }
+                item { Line("Следующий подход: пульс ниже ${s.readyHr} и отдых не меньше ${s.minRest} с", Colors.dim, 14) }
+            }
+            if (s.type.mode == Mode.CARDIO) item { Line("Минут в Z2–3: ${s.z23Min} · нагрузка ${s.trimp}", Color.White, 15) }
+            if (s.distanceM > 0) item { Line("Дистанция ${fmtKm(s.distanceM)} км", Color.White, 15) }
+            // ---- how to read ----
+            item { Line("Как понимать", Colors.dim, 14, bold = true) }
+            item { Line("Спад пульса — на сколько ударов пульс падает за первую минуту отдыха. 20+ отлично, 12–20 норма, меньше 12 или вдвое ниже начала — усталость.", Colors.dim, 14) }
+            item { Line("Z1–Z5 — зоны пульса. Z2 — можно говорить фразами: лучшее для сердца и восстановления. Z4–5 — коротко, это тяжело.", Colors.dim, 14) }
+            if (s.coachLog.size > 1) {
+                item { Line("Ранее", Colors.dim, 14, bold = true) }
+                s.coachLog.dropLast(1).reversed().forEach { m ->
+                    item { Line(clockFmt.format(Date(m.time)) + " · " + m.full, Colors.dim, 14) }
+                }
+            }
+            item { WideBtn("Закрыть", Colors.card) { onClose() } }
         }
     }
 }
@@ -176,7 +273,7 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
     val up = Cell("${s.ascentM}", "м ↑")
     val floors = Cell("${s.floors}", "этажей")
     val cad = Cell(if (s.cadence > 0) "${s.cadence}" else "—", "шаг/мин")
-    val kcal = Cell("${s.kcal}", "ккал")
+    val kcal = if (s.prevSegs.isEmpty()) Cell("${s.kcal}", "ккал") else Cell("${s.segKcal}", "ккал упр.")
     return when {
         t.mode == Mode.SETS -> listOf(
             Cell("${s.setsDone}", "подходов"),
@@ -186,16 +283,16 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
                 else -> Cell(fmtDuration(s.phaseSec), "отдых")
             },
             if (t.repCount) Cell("${s.reps}", "повт.") else kcal,
-            Cell(s.lastHrr60?.let { "−$it" } ?: "—", "восст./мин"),
+            Cell(s.lastHrr60?.let { "−$it" } ?: "—", "спад пульса"),
         )
         t == WorkoutType.STAIRS_HOME -> listOf(floors, up, Cell("${s.vSpeed}", "м/мин ↑"), Cell("${s.steps}", "шагов"))
         t == WorkoutType.STAIRS_OUTDOOR -> listOf(floors, up, Cell("${s.vSpeed}", "м/мин ↑"), km)
-        t == WorkoutType.STAIRS -> listOf(floors, cad, kcal, Cell("${s.z23Min}", "мин З2–3"))
+        t == WorkoutType.STAIRS -> listOf(floors, cad, kcal, Cell("${s.z23Min}", "мин Z2–3"))
         t == WorkoutType.BIKE_OUTDOOR -> listOf(km, Cell("%.1f".format(s.speedKmh), "км/ч"), Cell("%.1f".format(s.avgSpeedKmh), "ср. км/ч"), up)
         t == WorkoutType.RUN -> listOf(km, pace, avgPace, cad)
         t == WorkoutType.HIKING || t == WorkoutType.SKIING -> listOf(km, pace, up, Cell("${s.descentM}", "м ↓"))
         t.gps -> listOf(km, pace, cad, up)
-        else -> listOf(Cell("${s.z23Min}", "мин З2–3"), kcal, Cell("${s.avgHr}", "ср. пульс"), Cell("${s.trimp}", "нагрузка"))
+        else -> listOf(Cell("${s.z23Min}", "мин Z2–3"), kcal, Cell("${s.avgHr}", "ср. пульс"), Cell("${s.trimp}", "нагрузка"))
     }
 }
 
@@ -203,7 +300,7 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
 private fun Grid(c: List<Cell>) {
     Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
         c.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEach { Metric(it.value, it.label) }
             }
         }
@@ -238,15 +335,15 @@ private fun TreadmillBlock(s: WorkoutEngine.Ui) {
     }
     Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
         Metric(fmtKm(s.distanceM), "км")
-        Metric("${s.kcal}", "ккал")
+        if (s.prevSegs.isEmpty()) Metric("${s.kcal}", "ккал") else Metric("${s.segKcal}", "ккал упр.")
     }
 }
 
 @Composable
 private fun Metric(value: String, unit: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(66.dp)) {
-        Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, lineHeight = 23.sp, maxLines = 1)
-        Text(unit, fontSize = 12.sp, color = Colors.dim, lineHeight = 13.sp, maxLines = 1)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(70.dp)) {
+        Text(value, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = Color.White, lineHeight = 24.sp, maxLines = 1)
+        Text(unit, fontSize = 13.sp, color = Colors.dim, lineHeight = 14.sp, maxLines = 1)
     }
 }
 

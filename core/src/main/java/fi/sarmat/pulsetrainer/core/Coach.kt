@@ -61,7 +61,17 @@ data class BodyEntry(
     val armCm: Double? = null,
     val thighCm: Double? = null,
     val bodyFatPct: Double? = null,
-)
+    val neckCm: Double? = null,
+) {
+    /** % fat: entered, or estimated by the US Navy tape method (men: waist, neck, height; ±3–4 %). */
+    fun fatOrEstimate(heightCm: Int, male: Boolean): Pair<Double, Boolean>? {
+        bodyFatPct?.let { return it to false }
+        val w = waistCm ?: return null; val n = neckCm ?: return null
+        if (!male || w - n <= 0 || heightCm < 120) return null
+        val v = 495.0 / (1.0324 - 0.19077 * kotlin.math.log10(w - n) + 0.15456 * kotlin.math.log10(heightCm.toDouble())) - 450.0
+        return v.takeIf { it in 3.0..60.0 }?.let { it to true }
+    }
+}
 
 /** What the coach recommends for today. */
 enum class DayType(val title: String) {

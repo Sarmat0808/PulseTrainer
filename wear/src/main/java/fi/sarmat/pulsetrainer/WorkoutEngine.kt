@@ -97,7 +97,22 @@ object WorkoutEngine {
         val prepping: Boolean = false,
         val betweenCycles: Boolean = false,
         val intervalsDone: Boolean = false,
+        // ----- coach panel (swipe up) -----
+        /** Everything the coach said in this workout, newest last. */
+        val coachLog: List<CoachMsg> = emptyList(),
+        /** A new coach message that hasn't been opened yet → "Тренер" badge on the main screen. */
+        val coachUnseen: Boolean = false,
+        /** Calories of the current exercise (kcal = whole workout). */
+        val segKcal: Int = 0,
+        /** Pulse drop in the first minute of rest after each set (all exercises), oldest first. */
+        val hrrList: List<Int> = emptyList(),
+        val setsTotal: Int = 0,
+        val maxHr: Int = 0,
+        /** Finished exercises of this workout: type and active seconds. */
+        val prevSegs: List<Pair<WorkoutType, Int>> = emptyList(),
     )
+
+    data class CoachMsg(val time: Long, val short: String, val full: String, val level: Int)
 
     interface Hooks {
         val context: Context
@@ -192,6 +207,22 @@ object WorkoutEngine {
     private var endAdvice: String? = null
     private var lastSafety = 0L
     private var adviceAt = 0
+    private var adviceShort: String? = null
+    private var endShort: String? = null
+    private val coachLog = ArrayList<CoachMsg>()
+    private var coachUnseen = false
+
+    /** Coach says something: logged, badge lit, one vibration (only when it's new). */
+    private fun note(short: String, full: String, level: Int = 2) {
+        if (coachLog.lastOrNull()?.full == full) return
+        coachLog.add(CoachMsg(System.currentTimeMillis(), short, full, level))
+        if (coachLog.size > 30) coachLog.removeAt(0)
+        coachUnseen = true
+        Haptics.warn()
+    }
+
+    /** The coach panel was opened. */
+    fun markCoachSeen() { coachUnseen = false; publish() }
     private var nearMaxSec = 0
 
     // ----- auto-pause / km -----
@@ -221,7 +252,8 @@ object WorkoutEngine {
         hr.clear(); trackPts.clear(); segments.clear()
         track.value = emptyList()
         usedStrap = false; usedWatch = false; tickNo = 0
-        endAdvice = null; lastSafety = 0L; nearMaxSec = 0
+        endAdvice = null; endShort = null; lastSafety = 0L; nearMaxSec = 0
+        coachLog.clear(); coachUnseen = false
         beginSegment(t, sessionStart)
         publish()
     }
@@ -457,7 +489,8 @@ object WorkoutEngine {
         setStart = now
         setPeak = 0
         reps = 0
-        readyNotified = false; adviceGiven = false; advice = null; lastHrr60 = null
+        readyNotified = false; adviceGiven = false; advice = null; adviceShort = null; lastHrr60 = null
+        endAdvice = null; endShort = null
         roundNo = 1
         roundInCycle = 1; cycleNo = 1; betweenCycles = false; intervalsDone = false
         if (t.mode == Mode.ROUNDS) {
@@ -608,6 +641,8 @@ object WorkoutEngine {
         if (!ready && phaseSec >= SLOW_RECOVERY_SEC && !adviceGiven) {
             adviceGiven = true
             advice = "Пульс падает медленно — отдохните ещё или облегчите подход"
+            adviceShort = "Отдохните подольше"
+            note(adviceShort!!, advice!!, 0)
         }
     }
 
@@ -698,29 +733,33 @@ object WorkoutEngine {
         if (nearMaxSec >= 45 && now - lastSafety > 5 * 60_000L) {
             lastSafety = now
             advice = "Пульс у максимума ($cur) — сбавьте темп и подышите"
+            adviceShort = "Пульс у максимума — сбавьте"
             adviceAt = activeSec
-            Haptics.warn()
+            note(adviceShort!!, advice!!)
         }
         if (endAdvice != null || activeSec % 30 != 0) return
         val min = activeSec / 60
         val strength = type.mode == Mode.SETS
         val hrr = (segments.flatMap { it.sets } + sets).mapNotNull { it.hrr60 }
-        val msg = when {
-            strength && min >= 75 -> "Уже $min мин силовой — пора заканчивать: дальше качество подходов падает"
-            strength && hrr.size >= 6 && hrr.takeLast(3).average() < hrr.take(3).average() * 0.6 ->
-                "Восстановление пульса упало почти вдвое — на сегодня достаточно"
-            strength && slowRests >= 2 -> "Пульс уже два раза долго не восстанавливается — лучше закончить"
-            !strength && type == WorkoutType.WALK && min >= 120 -> "2 часа ходьбы — отличный объём, можно заканчивать"
-            !strength && type != WorkoutType.WALK && type.mode == Mode.CARDIO && min >= 90 -> "$min мин — хороший объём. Можно заканчивать, выпейте воды"
+        val first = hrr.take(3).takeIf { it.size == 3 }?.average()
+        val last = hrr.takeLast(3).average()
+        val msg: Pair<String, String>? = when {
+            strength && min >= 75 -> "Пора заканчивать" to "Уже $min мин силовой — пора заканчивать: дальше качество подходов падает, а восстановление затянется."
+            strength && hrr.size >= 6 && first != null && last < first * 0.6 ->
+                "Пора заканчивать" to ("Восстановление пульса упало почти вдвое: в начале пульс за минуту отдыха падал на ~${first.toInt()}, " +
+                    "сейчас на ~${last.toInt()}. Это усталость — на сегодня достаточно. Заминка 5–10 мин и вода.")
+            strength && slowRests >= 2 -> "Лучше закончить" to "Пульс уже два раза долго не восстанавливается между подходами — лучше закончить или перейти на лёгкую заминку."
+            !strength && type == WorkoutType.WALK && min >= 120 -> "Можно заканчивать" to "2 часа ходьбы — отличный объём, можно заканчивать."
+            !strength && type != WorkoutType.WALK && type.mode == Mode.CARDIO && min >= 90 -> "Можно заканчивать" to "$min мин — хороший объём. Можно заканчивать, выпейте воды."
             else -> null
         }
-        if (msg != null) { endAdvice = msg; Haptics.warn() }
+        if (msg != null) { endShort = msg.first; endAdvice = msg.second; note(msg.first, msg.second) }
     }
 
     private fun assist(cur: Int?): Pair<String?, Int> {
-        endAdvice?.let { return "Тренер: $it" to 2 }
-        if (advice != null && type.mode != Mode.SETS && activeSec - adviceAt > 40) advice = null
-        advice?.let { return it to 2 }
+        endAdvice?.let { return "Тренер: ${endShort ?: "см. совет"} ▲" to 2 }
+        if (advice != null && type.mode != Mode.SETS && activeSec - adviceAt > 40) { advice = null; adviceShort = null }
+        advice?.let { return "Тренер: ${adviceShort ?: it} ▲" to 2 }
         if (autoPaused) return "Автопауза — начните движение" to 0
         if (HrSensor.isConnected() && HrSensor.contactLost.value) return "Ремень: нет контакта — смочите электроды, пульс с часов" to 2
         HrSensor.battery.value?.takeIf { it in 0..10 && activeSec < 120 }?.let { return "Батарея ремня $it% — скоро заменить (CR2025)" to 2 }
@@ -848,6 +887,13 @@ object WorkoutEngine {
             prepping = prepping && type.mode == Mode.ROUNDS,
             betweenCycles = betweenCycles,
             intervalsDone = intervalsDone,
+            coachLog = coachLog.toList(),
+            coachUnseen = coachUnseen,
+            segKcal = segKcal.toInt(),
+            hrrList = (segments.flatMap { it.sets } + sets).mapNotNull { it.hrr60 },
+            setsTotal = segments.sumOf { it.sets.size } + sets.size,
+            maxHr = Physiology.maxHr(profile),
+            prevSegs = segments.map { it.type to it.activeSec },
         )
     }
 

@@ -266,7 +266,7 @@ object PhoneStore {
         val a = JSONArray()
         list.forEach {
             a.put(JSONObject().put("t", it.time).put("w", it.weightKg).put("waist", it.waistCm).put("chest", it.chestCm)
-                .put("arm", it.armCm).put("thigh", it.thighCm).put("fat", it.bodyFatPct))
+                .put("arm", it.armCm).put("thigh", it.thighCm).put("fat", it.bodyFatPct).put("neck", it.neckCm))
         }
         return a.toString()
     }
@@ -303,10 +303,11 @@ object PhoneStore {
             val a = JSONArray(prefs.getString("body", "[]"))
             (0 until a.length()).map { i ->
                 val o = a.getJSONObject(i)
-                BodyEntry(o.getLong("t"), o.d("w"), o.d("waist"), o.d("chest"), o.d("arm"), o.d("thigh"), o.d("fat"))
+                BodyEntry(o.getLong("t"), o.d("w"), o.d("waist"), o.d("chest"), o.d("arm"), o.d("thigh"), o.d("fat"), o.d("neck"))
             }
         } catch (_: Exception) { emptyList() }
         lastWatchContact.value = prefs.getLong("lastWatch", 0L)
+        lastHcImport = prefs.getLong("hcImport", 0L)
         stress.value = WorkoutJson.stressFromJson(prefs.getString("stress", null))
         passive.value = WorkoutJson.passiveFromJson(prefs.getString("passive", null))
         lastPassive.value = prefs.getLong("lastPassive", 0L)
@@ -356,7 +357,7 @@ object PhoneStore {
         val hasData = snap != null && snap.days.any {
             it.sleepMin != null || it.restHr != null || it.steps != null || it.hrvMs != null || it.weightKg != null
         }
-        if (hasData) rawDays = snap!!.days
+        if (hasData) { rawDays = snap!!.days; lastHcImport = System.currentTimeMillis(); prefs.edit().putLong("hcImport", lastHcImport).apply() }
         days.value = mergeWatch(rawDays)
         if (snap != null && (hasData || snap.ext.isNotEmpty())) {
             ext.value = snap.ext; if (snap.hrRecent.isNotEmpty()) hrRecent.value = snap.hrRecent
@@ -426,6 +427,10 @@ object PhoneStore {
 
     /** Days as read from Health Connect, before merging with the watch. */
     private var rawDays: List<DailyStats> = emptyList()
+
+    /** When fresh data last came from Samsung Health / Health Connect. */
+    var lastHcImport: Long = 0L
+        private set
 
     private fun saveWeights() {
         val a = JSONArray()

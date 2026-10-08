@@ -143,7 +143,8 @@ object Health {
         var total = 0
         for (e in (own + other).filter { it.hours > 0 }.sortedBy { it.end }) {
             val leftBefore = ((readyAt - e.end) / h.toDouble()).coerceAtLeast(0.0)
-            val add = e.hours + leftBefore * 0.5
+            // Unfinished recovery from earlier adds a third (not all of it), and never more than 96 h in total (Garmin's max).
+            val add = (e.hours + leftBefore / 3).coerceAtMost(96.0)
             readyAt = maxOf(readyAt, e.end + (add * h).toLong())
             total = (add.roundToInt()).coerceAtLeast(total.takeIf { leftBefore > 0 } ?: 0)
         }
@@ -170,7 +171,7 @@ object Health {
             stress.lastOrNull()?.takeIf { now - it.time < 12 * h && it.score > 60 }?.let { k += 0.10; factors += "Высокий стресс (+10%)" }
             if (check != null && check.feel <= 2) { k += 0.15; factors += "Самочувствие: устал (+15%)" }
             if (check != null && check.soreness == 2) { k += 0.15; factors += "Сильная боль в мышцах (+15%)" }
-            left *= k
+            left = (left * k.coerceIn(0.85, 1.35)).coerceAtMost(96.0)
         }
         val hl = left.roundToInt()
         val (label, level) = when {
