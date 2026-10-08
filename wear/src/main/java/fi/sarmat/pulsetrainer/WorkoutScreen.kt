@@ -225,7 +225,8 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
             if (s.coachUnseen) CoachBadge(onCoach)
             else s.assist?.let { line ->
                 Text(
-                    line, fontSize = 14.sp, maxLines = 2, textAlign = TextAlign.Center, lineHeight = 16.sp,
+                    line, fontSize = 15.sp, maxLines = 1, textAlign = TextAlign.Center, lineHeight = 17.sp,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     color = when (s.assistLevel) { 1 -> Colors.ready; 2 -> Colors.wait; else -> Colors.dim },
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 1.dp)
                         .pointerInput(Unit) { detectTapGestures(onTap = { onCoach() }) }
@@ -325,7 +326,7 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
                 else -> Cell(fmtDuration(s.phaseSec), "отдых")
             },
             if (t.repCount) Cell("${s.reps}", "повт.") else kcal,
-            Cell(s.lastHrr60?.let { "−$it" } ?: "—", "спад пульса"),
+            Cell(s.lastHrr60?.let { "−$it" } ?: "—", "спад/мин"),
         )
         t == WorkoutType.STAIRS_HOME -> listOf(floors, up, Cell("${s.vSpeed}", "м/мин ↑"), Cell("${s.steps}", "шагов"))
         t == WorkoutType.STAIRS_OUTDOOR -> listOf(floors, up, Cell("${s.vSpeed}", "м/мин ↑"), km)

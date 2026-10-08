@@ -760,24 +760,24 @@ object WorkoutEngine {
         endAdvice?.let { return "Тренер: ${endShort ?: "см. совет"} ▲" to 2 }
         if (advice != null && type.mode != Mode.SETS && activeSec - adviceAt > 40) { advice = null; adviceShort = null }
         advice?.let { return "Тренер: ${adviceShort ?: it} ▲" to 2 }
-        if (autoPaused) return "Автопауза — начните движение" to 0
-        if (HrSensor.isConnected() && HrSensor.contactLost.value) return "Ремень: нет контакта — смочите электроды, пульс с часов" to 2
-        HrSensor.battery.value?.takeIf { it in 0..10 && activeSec < 120 }?.let { return "Батарея ремня $it% — скоро заменить (CR2025)" to 2 }
-        if (type.gps && !gpsFix) return (if (hooks?.gpsOff() == true) "Включите «Местоположение» в настройках часов" else "Поиск GPS… лучше на открытом месте") to 2
+        if (autoPaused) return "⏸ Автопауза" to 0
+        if (HrSensor.isConnected() && HrSensor.contactLost.value) return "Ремень: нет контакта" to 2
+        HrSensor.battery.value?.takeIf { it in 0..10 && activeSec < 120 }?.let { return "Батарея ремня $it%" to 2 }
+        if (type.gps && !gpsFix) return (if (hooks?.gpsOff() == true) "Включите местоположение" else "Поиск GPS…") to 2
         return when (type.mode) {
             Mode.SETS -> when {
-                warmup && phase == Phase.REST -> (if (type.repCount) "Начните — повторы и подходы посчитаются сами" else "Разминка. Подходы отметятся сами по пульсу") to 0
+                warmup && phase == Phase.REST -> (if (type.repCount) "Начните — счёт сам" else "Разминка · подходы сами") to 0
                 phase == Phase.WORK -> "Подход ${setNo}: ${fmtDurationShort(phaseSec)}" to 0
-                isRestReady(cur) -> "✓ Можно подход" + (lastHrr60?.let { " · пульс −$it за мин" } ?: "") to 1
+                isRestReady(cur) -> "✓ Можно подход" + (lastHrr60?.let { " · −$it" } ?: "") to 1
                 else -> {
                     val parts = ArrayList<String>()
-                    if (phaseSec < type.minRestSec) parts += "ещё ${type.minRestSec - phaseSec} с"
-                    if (cur != null && cur > readyHr) parts += "пульс до $readyHr"
+                    if (phaseSec < type.minRestSec) parts += "${type.minRestSec - phaseSec} с"
+                    if (cur != null && cur > readyHr) parts += "до $readyHr"
                     "Отдых: " + parts.joinToString(" · ") to 0
                 }
             }
             Mode.ROUNDS -> when {
-                intervalsDone -> "✓ Готово! Завершите или смените упражнение" to 1
+                intervalsDone -> "✓ Готово!" to 1
                 prepping -> "Приготовьтесь…" to 0
                 else -> null to 0
             }
@@ -786,9 +786,9 @@ object WorkoutEngine {
                 when {
                     lastLapSec != null && type.gps && (activeSec - lapEndActive) < 40 ->
                         "Км ${laps.size}: ${fmtDurationShort(lastLapSec!!)}" to 1
-                    z >= 4 && type != WorkoutType.RUN -> "Зона $z — тяжело. Для сердца держите ${bounds[1]}–${bounds[2]}" to 2
-                    z <= 1 && activeSec > 300 -> "Ниже зоны 2 — можно прибавить до ${bounds[1]}+" to 0
-                    z in 2..3 -> "Зона $z — то, что нужно для сердца" to 1
+                    z >= 4 && type != WorkoutType.RUN -> "Тяжело · Z2 = ${bounds[1]}–${bounds[2]}" to 2
+                    z <= 1 && activeSec > 300 -> "Можно прибавить: ${bounds[1]}+" to 0
+                    z in 2..3 -> "✓ Z$z — хорошо для сердца" to 1
                     else -> null to 0
                 }
             }
