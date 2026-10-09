@@ -1,5 +1,7 @@
 package fi.sarmat.pulsetrainer
 
+import kotlin.math.roundToInt
+
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -72,7 +74,7 @@ object PhoneStore {
     val hrRecent = MutableStateFlow<List<Pair<Long, Int>>>(emptyList())
 
     fun recovery(): fi.sarmat.pulsetrainer.core.Health.Recovery =
-        fi.sarmat.pulsetrainer.core.Health.recovery(workouts.value, ext.value, days.value, passive.value, todayCheckIn(), stress.value)
+        fi.sarmat.pulsetrainer.core.Health.recovery(workouts.value, ext.value, days.value, passive.value, todayCheckIn(), stress.value, personal = recoveryFactor)
 
     /** ECG recordings from the Polar H10 (via the watch). */
     val ecgs = MutableStateFlow<List<fi.sarmat.pulsetrainer.core.EcgRecord>>(emptyList())
@@ -215,6 +217,15 @@ object PhoneStore {
         val c = CheckIn(day, feel, soreness)
         checkIn.value = c
         prefs.edit().putString("checkin", "${c.day},${c.feel},${c.soreness}").apply()
+        // Learn once per morning: did the model's recovery match how you actually feel?
+        if (prefs.getLong("recKDay", -1) != day && java.time.LocalTime.now().hour < 12) {
+            val rest = days.value.lastOrNull()?.restHr ?: passive.value.lastOrNull()?.restHr
+            val base = (days.value.dropLast(1).takeLast(14).mapNotNull { it.restHr } + passive.value.dropLast(1).takeLast(14).mapNotNull { it.restHr })
+                .takeIf { it.size >= 4 }?.average()
+            val dev = if (rest != null && base != null) rest - base else null
+            val k = fi.sarmat.pulsetrainer.core.Learn.updateRecovery(recoveryFactor, recovery().hoursLeft, feel, dev)
+            prefs.edit().putFloat("recK", k.toFloat()).putLong("recKDay", day).apply()
+        }
     }
 
     private fun loadCheckIn(): CheckIn? = try {
@@ -230,7 +241,37 @@ object PhoneStore {
         profile.value ?: fi.sarmat.pulsetrainer.core.Profile(), goal.value, days.value.lastOrNull(), days.value,
         workouts.value, hrv.value, weights.value, body.value,
         ext = ext.value, checkIn = todayCheckIn(), passive = passive.value,
+        personalRecovery = recoveryFactor,
     )
+
+    // ======================= Self-learning coach =======================
+
+    /** Personal recovery speed, learned from morning check-ins (×0.75…×1.30). */
+    val recoveryFactor: Double get() = prefs.getFloat("recK", 1f).toDouble()
+
+    /** Real daily energy use learned from the food diary and weight (null until enough data). */
+    var learnedTdee: Int? = null
+        private set
+
+    fun dailyLoads(days: Int = 120): List<Double> {
+        val z = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now()
+        val starts = (days - 1 downTo 0).map { today.minusDays(it.toLong()).atStartOfDay(z).toInstant().toEpochMilli() }
+        return fi.sarmat.pulsetrainer.core.Health.dailyLoad(workouts.value, ext.value, starts)
+    }
+
+    fun learnForm() = fi.sarmat.pulsetrainer.core.Learn.form(dailyLoads())
+
+    fun learnEnergy(): fi.sarmat.pulsetrainer.core.Learn.Energy {
+        val z = java.time.ZoneId.systemDefault()
+        val intake = FoodStore.history(28).filter { !it.forgot && it.entries.isNotEmpty() && it.date != java.time.LocalDate.now() }
+            .map { it.date.atStartOfDay(z).toInstant().toEpochMilli() to it.totals.kcal }
+        val p = profile.value ?: fi.sarmat.pulsetrainer.core.Profile()
+        val formula = (fi.sarmat.pulsetrainer.core.Physiology.bmr(p) * 1.5).roundToInt()
+        val e = fi.sarmat.pulsetrainer.core.Learn.energy(intake, weights.value.map { it.time to it.kg }, formula)
+        learnedTdee = e.tdee
+        return e
+    }
 
     /** Send today's readiness and plan to the watch (shown at the top of the watch app). */
     suspend fun pushCoachToWatch(ctx: Context) {

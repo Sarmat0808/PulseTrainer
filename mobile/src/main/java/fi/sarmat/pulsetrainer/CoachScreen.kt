@@ -53,6 +53,7 @@ import kotlin.math.roundToInt
 
 private val COACH_CARDS = linkedMapOf(
     "plan" to "План на сегодня и готовность",
+    "learn" to "Прогноз: форма, вес, восстановление",
     "week" to "Неделя",
     "progress" to "Прогресс (вес, талия)",
     "sync" to "Синхронизация",
@@ -114,6 +115,7 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
             "sync" -> SyncCard(needAccess, days)
             "sleep" -> SleepCard(today)
             "stats" -> StatsCard(days, p)
+            "learn" -> LearnCard()
             "week" -> Section {
                 Text("Неделя", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 advice.week.forEach { BulletText(it) }
@@ -639,5 +641,63 @@ private fun BackupCard() {
             },
             dismissButton = { androidx.compose.material3.TextButton(onClick = { askRestore = null }) { Text("Отмена") } },
         )
+    }
+}
+
+
+// ======================= Self-learning forecast =======================
+
+/** What the coach has learned from your own data, and its forecasts. */
+@Composable
+private fun LearnCard() {
+    val workouts by PhoneStore.workouts.collectAsState()
+    val ext by PhoneStore.ext.collectAsState()
+    val weights by PhoneStore.weights.collectAsState()
+    val fv by FoodStore.version.collectAsState()
+    val form = remember(workouts, ext) { PhoneStore.learnForm() }
+    val en = remember(weights, fv) { PhoneStore.learnEnergy() }
+    val k = PhoneStore.recoveryFactor
+    Section {
+        Text("Прогноз и обучение", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        // ---- form ----
+        val fc = when { form.form < -30 -> Danger; form.form < -10 -> Warn; form.form <= 20 -> Good; else -> Accent }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Форма ${if (form.form > 0) "+" else ""}${form.form}", color = fc, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("  ${form.label}", color = fc, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        }
+        if (!form.hasData) Text("Мало тренировок для точного расчёта — нужно хотя бы 5 дней с нагрузкой.", color = Dim, fontSize = 14.sp)
+        Text(form.advice, color = Color.White, fontSize = 15.sp)
+        if (form.daysToFresh > 0) Text("Свежим будете через ~${form.daysToFresh} дн. лёгкой нагрузки или отдыха.", color = Dim, fontSize = 15.sp)
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            val wd = listOf("пн", "вт", "ср", "чт", "пт", "сб", "вс")
+            val today = java.time.LocalDate.now().dayOfWeek.value - 1
+            form.forecast.take(7).forEachIndexed { i, v ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (i == 0) "сег" else wd[(today + i) % 7], color = Dim, fontSize = 12.sp)
+                    Text("$v", color = when { v < -30 -> Danger; v < -10 -> Warn; else -> Good }, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        Expander("Что значат цифры") {
+            Text("Фитнес ${form.fitness} — средняя нагрузка за 6 недель (растёт = вы тренированнее" +
+                (if (form.fitnessTrend != 0) ", за 4 недели ${if (form.fitnessTrend > 0) "+" else ""}${form.fitnessTrend}" else "") + "). " +
+                "Усталость ${form.fatigue} — нагрузка последней недели. Форма = фитнес − усталость. " +
+                "Строка выше — прогноз формы на неделю, если отдыхать. Модель Банистера, как в Garmin и TrainingPeaks.", color = Dim, fontSize = 14.sp)
+        }
+        // ---- energy & weight ----
+        Text("Питание и вес", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        Text(en.text, color = if (en.tdee != null) Good else Dim, fontSize = 15.sp)
+        if (en.tdee == null) {
+            Bar((en.daysUsed / en.daysNeeded.toFloat()).coerceIn(0f, 1f), Accent)
+        }
+        en.avgIntake?.let { Text("Съедаете в среднем: $it ккал/день", color = Color.White, fontSize = 15.sp) }
+        en.weeklyChange?.let { Text("Вес меняется: ${"%+.2f".format(it)} кг/нед (сглажено)", color = Color.White, fontSize = 15.sp) }
+        if (en.weightNow != null && en.weight4w != null)
+            Text("Прогноз веса через 4 недели при таком питании: ${"%.1f".format(en.weight4w)} кг (сейчас ${"%.1f".format(en.weightNow)})",
+                color = Accent, fontSize = 15.sp)
+        // ---- recovery ----
+        Text("Восстановление", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        Text(fi.sarmat.pulsetrainer.core.Learn.recoveryText(k), color = Dim, fontSize = 15.sp)
+        Text("Отвечайте утром на «Самочувствие» — так тренер учится вашей скорости восстановления.", color = Dim, fontSize = 13.sp)
     }
 }

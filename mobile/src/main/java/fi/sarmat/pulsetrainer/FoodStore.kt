@@ -26,6 +26,7 @@ object FoodStore {
 
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences("food", Context.MODE_PRIVATE)
+        FoodSync.init(ctx)
         custom.value = loadCustom()
     }
 
@@ -50,6 +51,7 @@ object FoodStore {
         }
         prefs.edit().putString(key(d), a.toString()).apply()
         version.value++
+        FoodSync.dayChanged(d)
     }
 
     fun add(d: LocalDate, food: Food, amount: Double, meal: Int = -1, time: Long? = null) {
@@ -208,7 +210,7 @@ object FoodStore {
     }
 
     fun targets(d: LocalDate): Targets =
-        Nutrition.targets(PhoneStore.profile.value ?: Profile(), PhoneStore.goal.value, trainedOn(d))
+        Nutrition.targets(PhoneStore.profile.value ?: Profile(), PhoneStore.goal.value, trainedOn(d), realTdee = PhoneStore.learnedTdee)
 
     data class DaySummary(val date: LocalDate, val totals: DayTotals, val target: Targets, val forgot: Boolean, val entries: List<FoodEntry>)
 

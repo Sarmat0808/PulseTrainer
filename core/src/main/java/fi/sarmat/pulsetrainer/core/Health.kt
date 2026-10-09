@@ -134,6 +134,8 @@ object Health {
     fun recovery(
         workouts: List<Workout>, ext: List<ExtWorkout>, days: List<DailyStats>, passive: List<PassiveDay>,
         check: CheckIn?, stress: List<StressRecord>, now: Long = System.currentTimeMillis(),
+        /** Learned personal recovery speed (see Learn.updateRecovery). */
+        personal: Double = 1.0,
     ): Recovery {
         val h = 3600_000L
         data class Ev(val end: Long, val hours: Int)
@@ -171,7 +173,7 @@ object Health {
             stress.lastOrNull()?.takeIf { now - it.time < 12 * h && it.score > 60 }?.let { k += 0.10; factors += "Высокий стресс (+10%)" }
             if (check != null && check.feel <= 2) { k += 0.15; factors += "Самочувствие: устал (+15%)" }
             if (check != null && check.soreness == 2) { k += 0.15; factors += "Сильная боль в мышцах (+15%)" }
-            left = (left * k.coerceIn(0.85, 1.35)).coerceAtMost(96.0)
+            left = (left * k.coerceIn(0.85, 1.35) * personal).coerceAtMost(96.0)
         }
         val hl = left.roundToInt()
         val (label, level) = when {

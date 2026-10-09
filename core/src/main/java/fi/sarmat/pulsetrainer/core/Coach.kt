@@ -130,6 +130,7 @@ object Coach {
         ext: List<ExtWorkout> = emptyList(),
         checkIn: CheckIn? = null,
         passive: List<PassiveDay> = emptyList(),
+        personalRecovery: Double = 1.0,
     ): CoachAdvice {
         var type = DayType.CARDIO
         // Test starts of a few seconds are not training: they must not change readiness or plans.
@@ -226,11 +227,12 @@ object Coach {
         // ---- Recovery: the slowest unfinished recovery among recent sessions (own or from Samsung Health) ----
         // Uses the same hours as the «Восстановление» card, so the two never contradict each other.
         val recent = workouts.filter { Physiology.isRealWorkout(it) && it.end > now - 4 * DAY && it.end <= now }
-        val worst = recent.maxByOrNull { it.end }?.let { it to 0.0 }
-        val rec = Health.recovery(workouts, ext, days, passive, checkIn, emptyList(), now)
+        val worst = recent.maxByOrNull { Physiology.recoveryHours(it.segments) - (now - it.end) / 3600_000.0 }?.let { it to 0.0 }
+        val rec = Health.recovery(workouts, ext, days, passive, checkIn, emptyList(), now, personalRecovery)
         if (rec.hoursLeft > 0) {
             val left = rec.hoursLeft
-            val pts = when { left > 36 -> -40; left > 24 -> -30; left > 12 -> -20; else -> -10 }
+            // Recovery hours already include sleep and how you feel, so this weighs a bit less than they do separately.
+            val pts = when { left > 36 -> -30; left > 24 -> -25; left > 12 -> -15; else -> -8 }
             factors += Factor("Восстановление: ещё ~$left ч" + (worst?.let { " после «${it.first.title}»" } ?: ""), pts, "recovery")
         }
         extNew.filter { it.trimp >= 80 && it.end > (worst?.first?.end ?: 0L) && now - it.end < 24 * 3600_000L }.maxByOrNull { it.end }?.let { e ->
@@ -253,7 +255,7 @@ object Coach {
         } else missing += "ваше самочувствие (ответьте на 2 вопроса)"
 
         // Each area can take away only so much: several small minuses of one kind must not add up to "rest day".
-        val caps = mapOf("sleep" to 30, "rest" to 20, "hrv" to 30, "load" to 25, "feel" to 30, "recovery" to 40)
+        val caps = mapOf("sleep" to 30, "rest" to 20, "hrv" to 30, "load" to 25, "feel" to 30, "recovery" to 30)
         val lost = factors.groupBy { it.group }.map { (g, l) -> minOf(-l.sumOf { it.points }, caps[g] ?: 100) }.sum()
         var score = (100 - lost).coerceIn(0, 100)
         // Without enough data the app must not claim "excellent readiness".

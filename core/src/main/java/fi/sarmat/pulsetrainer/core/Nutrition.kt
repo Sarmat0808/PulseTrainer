@@ -133,8 +133,9 @@ data class DayTotals(val kcal: Double, val p: Double, val f: Double, val c: Doub
  */
 object Nutrition {
 
-    fun targets(p: Profile, goal: Goal, trainedToday: Boolean, workoutKcal: Double = 0.0): Targets {
-        val tdee = Physiology.bmr(p) * (if (trainedToday) 1.6 else 1.45)
+    /** [realTdee] = your real average energy use learned from food log + weight (Learn.energy), if known. */
+    fun targets(p: Profile, goal: Goal, trainedToday: Boolean, workoutKcal: Double = 0.0, realTdee: Int? = null): Targets {
+        val tdee = realTdee?.let { it + if (trainedToday) 150.0 else -100.0 } ?: (Physiology.bmr(p) * (if (trainedToday) 1.6 else 1.45))
         val adj = when (goal) {
             Goal.HYBRID -> 250.0
             Goal.MASS -> 350.0

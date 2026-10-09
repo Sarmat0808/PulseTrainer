@@ -97,10 +97,37 @@ object HealthSync {
 
     private fun meta(id: String) = Metadata(clientRecordId = id, clientRecordVersion = 1)
 
+    /**
+     * Removes PulseTrainer's own workouts shorter than 3 minutes (test starts) from Health Connect,
+     * so they disappear from Samsung Health too. Other apps' data is never touched.
+     */
+    suspend fun cleanupShort(ctx: Context, days: Int = 30): Int {
+        if (!available(ctx)) return 0
+        val c = HealthConnectClient.getOrCreate(ctx)
+        if (HealthPermission.getWritePermission(ExerciseSessionRecord::class) !in c.permissionController.getGrantedPermissions()) return 0
+        val from = Instant.now().minusSeconds(days * 86400L)
+        val resp = c.readRecords(androidx.health.connect.client.request.ReadRecordsRequest(ExerciseSessionRecord::class,
+            androidx.health.connect.client.time.TimeRangeFilter.between(from, Instant.now()), pageSize = 1000))
+        val short = resp.records.filter { it.metadata.dataOrigin.packageName == ctx.packageName &&
+            java.time.Duration.between(it.startTime, it.endTime).seconds < 180 }
+        if (short.isEmpty()) return 0
+        c.deleteRecords(ExerciseSessionRecord::class, short.map { it.metadata.id }, emptyList())
+        short.forEach { s ->
+            val r = androidx.health.connect.client.time.TimeRangeFilter.between(s.startTime, s.endTime)
+            try { c.deleteRecords(HeartRateRecord::class, r) } catch (_: Exception) {}
+            try { c.deleteRecords(ActiveCaloriesBurnedRecord::class, r) } catch (_: Exception) {}
+            try { c.deleteRecords(TotalCaloriesBurnedRecord::class, r) } catch (_: Exception) {}
+            try { c.deleteRecords(DistanceRecord::class, r) } catch (_: Exception) {}
+        }
+        return short.size
+    }
+
     private fun off(t: Instant): ZoneOffset = ZoneId.systemDefault().rules.getOffset(t)
 
     /** Returns true if written. */
-    suspend fun write(ctx: Context, w: Workout): Boolean {
+    suspend fun write(ctx: Context, w: Workout, force: Boolean = false): Boolean {
+        // Test starts and accidental taps (< 3 min) don't go to Samsung Health (counted as done).
+        if (!force && w.activeSec < 180) return true
         if (!available(ctx)) return false
         val client = HealthConnectClient.getOrCreate(ctx)
         val g = client.permissionController.getGrantedPermissions()

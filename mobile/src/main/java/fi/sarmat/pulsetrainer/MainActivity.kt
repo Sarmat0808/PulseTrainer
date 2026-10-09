@@ -137,10 +137,10 @@ fun PhoneRoot(openId: MutableState<String?>) {
         if (n > 0) Toast.makeText(ctx, "Записано в Health Connect: $n", Toast.LENGTH_SHORT).show()
     }
 
-    val allPerms = HealthSync.PERMISSIONS + HealthData.READ_PERMISSIONS + HealthData.WRITE_WEIGHT + HealthData.EXTRA_PERMISSIONS
+    val allPerms = HealthSync.PERMISSIONS + HealthData.READ_PERMISSIONS + HealthData.WRITE_WEIGHT + HealthData.EXTRA_PERMISSIONS + FoodSync.PERMISSIONS
     val hcLauncher = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { g ->
         granted = g
-        scope.launch { syncPending(); PhoneStore.refreshDays(ctx) }
+        scope.launch { syncPending(); PhoneStore.refreshDays(ctx); FoodSync.syncRecent(ctx) }
     }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val requestHc: () -> Unit = {
@@ -157,6 +157,14 @@ fun PhoneRoot(openId: MutableState<String?>) {
         PhoneStore.importAll(ctx)
         syncPending()
         PhoneStore.refreshDays(ctx)
+        // New in 5.1: food and water go to Samsung Health too — ask for that access once.
+        val fp = ctx.getSharedPreferences("pt", android.content.Context.MODE_PRIVATE)
+        if (hcStatus == HealthConnectClient.SDK_AVAILABLE && !granted.containsAll(FoodSync.PERMISSIONS) && !fp.getBoolean("askedFood", false)) {
+            fp.edit().putBoolean("askedFood", true).apply()
+            hcLauncher.launch(allPerms)
+        } else FoodSync.syncRecent(ctx)
+        try { HealthSync.cleanupShort(ctx) } catch (_: Exception) {}
+        try { PhoneStore.learnEnergy() } catch (_: Exception) {}
     }
 
     val selected = openId.value?.let { id -> workouts.firstOrNull { it.id == id } }
@@ -164,7 +172,7 @@ fun PhoneRoot(openId: MutableState<String?>) {
         BackHandler { openId.value = null }
         DetailScreen(selected, onBack = { openId.value = null }, onSync = {
             scope.launch {
-                val ok = try { HealthSync.write(ctx, selected) } catch (e: Exception) { false }
+                val ok = try { HealthSync.write(ctx, selected, force = true) } catch (e: Exception) { false }
                 if (ok) PhoneStore.markSynced(selected.id)
                 Toast.makeText(ctx, if (ok) "Записано в Health Connect" else "Нет доступа к Health Connect", Toast.LENGTH_SHORT).show()
             }
