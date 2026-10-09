@@ -139,11 +139,13 @@ object HealthData {
                 var total = 0L; var deep = 0L; var rem = 0L; var light = 0L; var awake = 0L
                 var hasStages = false
                 list.forEach { s ->
-                    val dur = (s.endTime.toEpochMilli() - s.startTime.toEpochMilli()) / 60000
+                    val dur = (s.endTime.toEpochMilli() - s.startTime.toEpochMilli())
                     if (s.stages.isEmpty()) total += dur
                     s.stages.forEach { st ->
                         hasStages = true
-                        val m = (st.endTime.toEpochMilli() - st.startTime.toEpochMilli()) / 60000
+                        // Milliseconds, rounded to minutes only at the end: Samsung writes dozens of short
+                        // stages, and cutting each one to whole minutes lost ~20–30 min per night.
+                        val m = (st.endTime.toEpochMilli() - st.startTime.toEpochMilli())
                         when (st.stage) {
                             SleepSessionRecord.STAGE_TYPE_DEEP -> { deep += m; total += m }
                             SleepSessionRecord.STAGE_TYPE_REM -> { rem += m; total += m }
@@ -159,11 +161,11 @@ object HealthData {
                     it.copy(
                         sleepStart = main?.startTime?.toEpochMilli(),
                         sleepEnd = main?.endTime?.toEpochMilli(),
-                        sleepMin = total.toInt(),
-                        deepMin = if (hasStages) deep.toInt() else null,
-                        remMin = if (hasStages) rem.toInt() else null,
-                        lightMin = if (hasStages) light.toInt() else null,
-                        awakeMin = if (hasStages) awake.toInt() else null,
+                        sleepMin = Math.round(total / 60000.0).toInt(),
+                        deepMin = if (hasStages) Math.round(deep / 60000.0).toInt() else null,
+                        remMin = if (hasStages) Math.round(rem / 60000.0).toInt() else null,
+                        lightMin = if (hasStages) Math.round(light / 60000.0).toInt() else null,
+                        awakeMin = if (hasStages) Math.round(awake / 60000.0).toInt() else null,
                     )
                 }
             }
