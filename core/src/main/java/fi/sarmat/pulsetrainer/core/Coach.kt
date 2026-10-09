@@ -226,11 +226,12 @@ object Coach {
         // ---- Recovery: the slowest unfinished recovery among recent sessions (own or from Samsung Health) ----
         // Uses the same hours as the «Восстановление» card, so the two never contradict each other.
         val recent = workouts.filter { Physiology.isRealWorkout(it) && it.end > now - 4 * DAY && it.end <= now }
-        val worst = recent.map { w -> w to (Physiology.recoveryHours(w.segments) - (now - w.end) / 3600_000.0) }.maxByOrNull { it.second }
-        if (worst != null && worst.second > 0) {
-            val left = worst.second
+        val worst = recent.maxByOrNull { it.end }?.let { it to 0.0 }
+        val rec = Health.recovery(workouts, ext, days, passive, checkIn, emptyList(), now)
+        if (rec.hoursLeft > 0) {
+            val left = rec.hoursLeft
             val pts = when { left > 36 -> -40; left > 24 -> -30; left > 12 -> -20; else -> -10 }
-            factors += Factor("Восстановление после «${worst.first.title}»: ещё ~${left.roundToInt()} ч", pts, "recovery")
+            factors += Factor("Восстановление: ещё ~$left ч" + (worst?.let { " после «${it.first.title}»" } ?: ""), pts, "recovery")
         }
         extNew.filter { it.trimp >= 80 && it.end > (worst?.first?.end ?: 0L) && now - it.end < 24 * 3600_000L }.maxByOrNull { it.end }?.let { e ->
             factors += Factor("Вчера/сегодня: «${e.title}» ${e.minutes} мин — организм ещё восстанавливается", -8, "load")

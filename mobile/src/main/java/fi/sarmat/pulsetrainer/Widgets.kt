@@ -246,7 +246,9 @@ fun StressContent(list: List<StressRecord>) {
     }
     Text(dtFmt.format(Date(last.time)) + " · пульс ${last.hr}" + if (last.rmssd > 0) " · ВСР ${last.rmssd.roundToInt()} мс" else " · по пульсу (часы)",
         color = Dim, fontSize = 14.sp)
-    Text(Physiology.stressAdvice(last.score), color = Color.White, fontSize = 16.sp)
+    if (System.currentTimeMillis() - last.time > 12 * 3600_000L)
+        Text("Замер старый — измерьте заново, чтобы видеть стресс сейчас.", color = Warn, fontSize = 15.sp)
+    else Text(Physiology.stressAdvice(last.score), color = Color.White, fontSize = 16.sp)
     Expander("История и как снизить стресс") {
         list.takeLast(8).reversed().forEach {
             Text("${dtFmt.format(Date(it.time))}: ${it.score} · ${Physiology.stressLabel(it.score).lowercase()}", color = Color.White, fontSize = 15.sp)

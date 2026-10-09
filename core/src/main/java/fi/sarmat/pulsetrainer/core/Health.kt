@@ -327,10 +327,13 @@ object Health {
                 when (goal) { Goal.MASS, Goal.HYBRID -> "цель +0,5…1 кг в месяц"; Goal.FAT_LOSS -> "цель −2…4 кг в месяц"; else -> "держать стабильно" })
         }
         val (fA, fB) = split(days.mapNotNull { d -> d.bodyFatPct?.let { d.day to it } })
-        if (fA.size >= 2 && fB.size >= 2) {
-            val d = fA.average() - fB.average()
-            out += Trend("Жир", "%.1f%%".format(fA.average()), "%+.1f".format(d), if (kotlin.math.abs(d) < 0.5) null else d < 0,
-                if (d >= 0.5) "набор идёт с жиром — проверьте калории" else "весы с биоимпедансом неточны ±2–3%")
+        // Bio-impedance scales jump ±2–3 % from day to day (water): medians, ≥3 weigh-ins in each half,
+        // and only a change of 1.5 % or more counts as a real trend.
+        if (fA.size >= 3 && fB.size >= 3) {
+            fun med(l: List<Double>) = l.sorted().let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 }
+            val d = med(fA) - med(fB)
+            out += Trend("Жир", "%.1f%%".format(med(fA)), "%+.1f".format(d), if (kotlin.math.abs(d) < 1.5) null else d < 0,
+                if (d >= 1.5) "растёт — возможно, калорий многовато" else if (d <= -1.5) "снижается" else "в пределах точности весов (±2–3%)")
         }
         val (stA, stB) = split(days.mapNotNull { d -> d.steps?.let { d.day to it.toDouble() } })
         if (stA.size >= 5 && stB.size >= 5) {

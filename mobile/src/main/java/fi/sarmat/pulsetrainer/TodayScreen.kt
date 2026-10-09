@@ -210,7 +210,10 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                 Bar(steps / 10000f, Good)
                 Row(Modifier.fillMaxWidth()) {
                     Mini(today?.activeKcal?.roundToInt()?.toString() ?: "—", "акт. ккал", Modifier.weight(1f))
-                    Mini(today?.distanceM?.let { "%.1f".format(it / 1000) } ?: "—", "км", Modifier.weight(1f))
+                    // Samsung puts only part of the distance into Health Connect; steps × stride (≈0.41 × height) fills the gap.
+                    val byStepsM = steps * (p.heightCm * 0.0041)
+                    val distM = maxOf(today?.distanceM ?: 0.0, byStepsM).takeIf { it > 0 }
+                    Mini(distM?.let { "%.1f".format(it / 1000) } ?: "—", "км", Modifier.weight(1f))
                     Mini((today?.floors?.roundToInt() ?: passive.lastOrNull()?.takeIf { it.day == today?.day }?.floors)?.toString() ?: "—", "этажей", Modifier.weight(1f))
                 }
                 val src = today?.day?.let { HealthData.stepSources[it] }.orEmpty()
