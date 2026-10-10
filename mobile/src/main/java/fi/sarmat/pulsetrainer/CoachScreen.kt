@@ -535,6 +535,7 @@ private fun RemindersCard() {
             Reminders.notify(ctx, 101, "Тренер: ${a.headline}", listOf("Готовность ${a.score}/100") + a.plan.take(3) + a.whenText)
         }) { Text("Показать совет сейчас") }
     }
+    WaterSettings()
     Section {
         Text("Источник данных сна и пульса", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Toggle("Только PulseTrainer (без Samsung Health)", watchOnly) { watchOnly = it; PhoneStore.watchOnly = it }
@@ -699,5 +700,38 @@ private fun LearnCard() {
         Text("Восстановление", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         Text(fi.sarmat.pulsetrainer.core.Learn.recoveryText(k), color = Dim, fontSize = 15.sp)
         Text("Отвечайте утром на «Самочувствие» — так тренер учится вашей скорости восстановления.", color = Dim, fontSize = 13.sp)
+    }
+}
+
+
+// ======================= Water reminders =======================
+
+@Composable
+private fun WaterSettings() {
+    val ctx = LocalContext.current
+    var on by remember { mutableStateOf(Water.on(ctx)) }
+    var from by remember { mutableStateOf(Water.from(ctx)) }
+    var to by remember { mutableStateOf(Water.to(ctx)) }
+    var every by remember { mutableStateOf(Water.every(ctx)) }
+    fun save() = Water.set(ctx, on, from, to, every)
+    fun pick(m: Int, set: (Int) -> Unit) {
+        try { android.app.TimePickerDialog(ctx, { _, h, mm -> set(h * 60 + mm); save() }, m / 60, m % 60, true).show() } catch (_: Exception) {}
+    }
+    Section {
+        Text("💧 Напоминания пить воду", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Toggle("Напоминать в течение дня", on) { on = it; save() }
+        if (on) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { pick(from) { from = it } }, modifier = Modifier.weight(1f)) { Text("С ${Reminders.hm(from)}", fontSize = 16.sp) }
+                OutlinedButton(onClick = { pick(to) { to = it } }, modifier = Modifier.weight(1f)) { Text("До ${Reminders.hm(to)}", fontSize = 16.sp) }
+            }
+            Stepper("Каждые", "$every мин", 15.0) { d -> every = (every + d.toInt()).coerceIn(30, 240); save() }
+            Text(remember(from, to, every) { Water.planText(ctx) }, color = Good, fontSize = 15.sp)
+        }
+        Text("Норма считается из профиля: вес, возраст, пол (≈35 мл/кг, после 55 лет 30 мл/кг, ~20 % воды приходит с едой) " +
+            "+ 500 мл за каждый час тренировки сегодня. Каждое напоминание пересчитывает порцию по тому, сколько уже выпито; " +
+            "если вы идёте с опережением — напоминание не придёт.", color = Dim, fontSize = 14.sp)
+        Text("Уведомления приходят и на часы, с кнопкой «Выпил» — вода сразу запишется. " +
+            "Если на часах их нет: Galaxy Wearable → Уведомления → включите PulseTrainer.", color = Dim, fontSize = 14.sp)
     }
 }

@@ -134,7 +134,7 @@ data class DayTotals(val kcal: Double, val p: Double, val f: Double, val c: Doub
 object Nutrition {
 
     /** [realTdee] = your real average energy use learned from food log + weight (Learn.energy), if known. */
-    fun targets(p: Profile, goal: Goal, trainedToday: Boolean, workoutKcal: Double = 0.0, realTdee: Int? = null): Targets {
+    fun targets(p: Profile, goal: Goal, trainedToday: Boolean, workoutKcal: Double = 0.0, realTdee: Int? = null, trainingMin: Int = 0): Targets {
         val tdee = realTdee?.let { it + if (trainedToday) 150.0 else -100.0 } ?: (Physiology.bmr(p) * (if (trainedToday) 1.6 else 1.45))
         val adj = when (goal) {
             Goal.HYBRID -> 250.0
@@ -146,8 +146,20 @@ object Nutrition {
         val protein = (p.weightKg * when (goal) { Goal.FAT_LOSS -> 2.0; Goal.HYBRID, Goal.MASS -> 1.8; else -> 1.6 }).roundToInt()
         val fat = (p.weightKg * 0.9).roundToInt()
         val carbs = max(100, ((kcal - protein * 4 - fat * 9) / 4.0).roundToInt())
-        val water = (p.weightKg * 35 + if (trainedToday) 500 else 0).roundToInt()
+        val water = waterNorm(p, if (trainedToday) maxOf(trainingMin, 45) else 0)
         return Targets(kcal, protein, fat, carbs, water)
+    }
+
+    /**
+     * Drinks per day, ml (what you log as drinks; ~20 % of the body's water comes with food):
+     * total water ≈ 35 ml per kg up to 55 years, 30 ml/kg from 55 (EFSA / common sports-medicine practice),
+     * men at least 2.5 l total, women 2.0 l; + ~500 ml per hour of training (sweat losses).
+     */
+    fun waterNorm(p: Profile, trainingMin: Int): Int {
+        val perKg = if (p.age >= 55) 30.0 else 35.0
+        val total = maxOf(p.weightKg * perKg, if (p.male) 2500.0 else 2000.0)
+        val drinks = total * 0.8 + trainingMin * 500.0 / 60
+        return ((drinks / 50).roundToInt() * 50).coerceIn(1500, 5000)
     }
 
     /** Daily norm reached = energy and protein at least 95 % of target. */

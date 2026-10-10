@@ -46,6 +46,7 @@ class PhoneApp : Application() {
         PhoneStore.init(this)
         FoodStore.init(this)
         try { Reminders.schedule(this, keep = true) } catch (_: Exception) {}
+        try { Water.schedule(this) } catch (_: Exception) {}
     }
 }
 

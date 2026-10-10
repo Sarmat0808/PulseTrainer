@@ -210,7 +210,17 @@ object FoodStore {
     }
 
     fun targets(d: LocalDate): Targets =
-        Nutrition.targets(PhoneStore.profile.value ?: Profile(), PhoneStore.goal.value, trainedOn(d), realTdee = PhoneStore.learnedTdee)
+        Nutrition.targets(PhoneStore.profile.value ?: Profile(), PhoneStore.goal.value, trainedOn(d), realTdee = PhoneStore.learnedTdee,
+            trainingMin = trainingMinutes(d))
+
+    /** Minutes of training on this day (PulseTrainer + other apps). */
+    fun trainingMinutes(d: LocalDate): Int {
+        val z = ZoneId.systemDefault()
+        val own = PhoneStore.workouts.value.filter { Instant.ofEpochMilli(it.start).atZone(z).toLocalDate() == d }.sumOf { it.activeSec } / 60
+        val ext = PhoneStore.ext.value.filter { Instant.ofEpochMilli(it.start).atZone(z).toLocalDate() == d }
+            .filter { e -> PhoneStore.workouts.value.none { w -> e.start < w.end && e.end > w.start } }.sumOf { it.minutes }
+        return own + ext
+    }
 
     data class DaySummary(val date: LocalDate, val totals: DayTotals, val target: Targets, val forgot: Boolean, val entries: List<FoodEntry>)
 

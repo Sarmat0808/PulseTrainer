@@ -55,6 +55,8 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <receiver android:name=".WaterReceiver" android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
