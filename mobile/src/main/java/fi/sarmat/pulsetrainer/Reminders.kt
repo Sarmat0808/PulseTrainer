@@ -67,11 +67,8 @@ object Reminders {
     fun schedule(ctx: Context, keep: Boolean) {
         val wm = WorkManager.getInstance(ctx)
         scheduleBedtime(ctx)
-        // Hourly check: "now is a good time for the protein drink / bar".
-        wm.enqueueUniquePeriodicWork(
-            "snack-tip", ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<SnackWorker>(1, TimeUnit.HOURS).build()
-        )
+        // Protein drink/bar reminders were switched off at the user's request (the diary shows what's missing).
+        wm.cancelUniqueWork("snack-tip")
         if (PhoneStore.remindMorning) enqueue(ctx, MORNING, PhoneStore.remindMorningHour, keep) else wm.cancelUniqueWork(MORNING)
         if (PhoneStore.remindEvening) enqueue(ctx, EVENING, EVENING_HOUR, keep) else wm.cancelUniqueWork(EVENING)
     }

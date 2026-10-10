@@ -121,7 +121,6 @@ fun NutritionScreen() {
         val renderCard: @Composable (String) -> Unit = { id ->
                 when (id) {
                     "status" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SnackTipCard(date, foods, entries, target)
                         StatusBox(reached, forgot, target, total)
                     }
                     "macros" -> Section {
@@ -410,7 +409,8 @@ private fun AddFoodDialog(foods: List<Food>, onDismiss: () -> Unit, pickOnly: Bo
                     // Search by word beginnings too: «кура» finds «Куриная грудка», «греч» — «Гречка».
                     fun matches(name: String, w: String): Boolean {
                         if (name.contains(w, ignoreCase = true)) return true
-                        val stem = w.lowercase().take(maxOf(3, w.length - 1))
+                        // «курица» finds «Куриная грудка», «овсянка» — «Овсяная каша»: compare the first 4 letters.
+                        val stem = w.lowercase().let { if (it.length >= 5) it.take(4) else it.take(3) }
                         return name.lowercase().split(' ', '(', ')', ',', '/').any { it.startsWith(stem) }
                     }
                     val list = foods

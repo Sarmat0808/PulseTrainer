@@ -180,7 +180,7 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
     ) {
         ZoneRing(hr, s.bounds)
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 14.dp),
+            Modifier.fillMaxSize().padding(start = 22.dp, end = 22.dp, top = 24.dp, bottom = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -222,9 +222,11 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
                 s.type.treadmill -> TreadmillBlock(s)
                 else -> Grid(cells(s))
             }
-            // Bottom: a new coach message lights the badge; otherwise one short helper line.
-            if (s.coachUnseen) CoachBadge(onCoach)
-            else s.assist?.let { line ->
+            // Bottom: orange plate = time to finish; green plate = a new tip (swipe up to read);
+            // strength shows nothing else here, cardio keeps one short zone hint.
+            if (s.endAdvice != null) CoachBadge("▲ Тренер: пора заканчивать", Color(0xFFF2994A), onCoach)
+            else if (s.coachUnseen) CoachBadge("▲ Совет тренера", Colors.ready, onCoach)
+            else if (s.type.mode != Mode.SETS) s.assist?.takeIf { !it.startsWith("Тренер") }?.let { line ->
                 Text(
                     line, fontSize = 15.sp, maxLines = 1, textAlign = TextAlign.Center, lineHeight = 17.sp,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -239,16 +241,16 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
 
 /** "Тренер ▲" — calm pulsing badge: there's a new tip, swipe up (or tap) to read it. */
 @Composable
-private fun CoachBadge(onClick: () -> Unit) {
+private fun CoachBadge(label: String, color: Color, onClick: () -> Unit) {
     val tr = androidx.compose.animation.core.rememberInfiniteTransition(label = "coach")
     val a by tr.animateFloat(0.55f, 1f, androidx.compose.animation.core.infiniteRepeatable(
         androidx.compose.animation.core.tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
     Box(
         Modifier.padding(top = 3.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
-            .background(Colors.wait.copy(alpha = a)).pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
+            .background(color.copy(alpha = a)).pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
             .padding(horizontal = 14.dp, vertical = 3.dp)
     ) {
-        Text("▲ Тренер: новый совет", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black, maxLines = 1)
+        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Black, maxLines = 1)
     }
 }
 
@@ -284,16 +286,7 @@ private fun CoachPanel(s: WorkoutEngine.Ui, hr: Int?, onClose: () -> Unit) {
                 s.prevSegs.forEach { (t, sec) -> item { Big("${t.short} ${fmtDuration(sec)}", Colors.dim, 17) } }
                 item { Big("${s.type.short} ${fmtDuration(s.segElapsedSec)} ← сейчас", Color.White, 17) }
             }
-            if (s.type.mode == Mode.SETS) {
-                item { Big("Подходов: ${s.setsTotal}") }
-                if (s.hrrList.size >= 2) {
-                    val first = s.hrrList.take(3).average().toInt()
-                    val now = s.hrrList.takeLast(3).average().toInt()
-                    val tired = s.hrrList.size >= 6 && now < first * 0.6
-                    item { Big("Спад: −$first → −$now", if (tired) Colors.wait else Color.White) }
-                }
-                item { Big("Подход: ♥ ≤ ${s.readyHr}", Colors.dim, 17) }
-            }
+            if (s.type.mode == Mode.SETS) item { Big("Z4–5: ${(s.segZoneSec[4] + s.segZoneSec[5]) / 60} мин · ср. ♥ ${s.avgHr}") }
             if (s.distanceM > 0) item { Big("${fmtKm(s.distanceM)} км") }
             if (s.coachLog.size > 1) {
                 item { Big("Ранее", Colors.dim, 16) }
@@ -303,7 +296,7 @@ private fun CoachPanel(s: WorkoutEngine.Ui, hr: Int?, onClose: () -> Unit) {
             }
             item { WideBtn(if (help) "Скрыть справку" else "Справка", Colors.card) { help = !help } }
             if (help) {
-                item { Big("Спад — на сколько падает пульс за 1 мин отдыха. 20+ отлично, меньше 12 — усталость.", Colors.dim, 16, bold = false) }
+                item { Big("Оранжевая плашка внизу — пора заканчивать. Зелёная — новый совет.", Colors.dim, 16, bold = false) }
                 item { Big("Z2 — говорите фразами. Лучшее для сердца.", Colors.dim, 16, bold = false) }
                 item { Big("Z4–5 — тяжело, недолго.", Colors.dim, 16, bold = false) }
             }
@@ -325,15 +318,12 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
     val cad = Cell(if (s.cadence > 0) "${s.cadence}" else "—", "шаг/мин")
     val kcal = if (s.prevSegs.isEmpty()) Cell("${s.kcal}", "ккал") else Cell("${s.segKcal}", "ккал упр.")
     return when {
+        // Sets found from the pulse alone are unreliable, so strength shows what is measured exactly.
         t.mode == Mode.SETS -> listOf(
-            Cell("${s.setsDone}", "подходов"),
-            when {
-                s.warmup -> Cell(fmtDuration(s.phaseSec), "разминка")
-                s.phase == WorkoutEngine.Phase.WORK -> Cell(fmtDuration(s.phaseSec), "подход")
-                else -> Cell(fmtDuration(s.phaseSec), "отдых")
-            },
-            if (t.repCount) Cell("${s.reps}", "повт.") else kcal,
-            Cell(s.lastHrr60?.let { "−$it" } ?: "—", "спад/мин"),
+            kcal,
+            Cell("${s.avgHr}", "ср. пульс"),
+            Cell("${s.trimp}", "нагрузка"),
+            Cell("${(s.segZoneSec[4] + s.segZoneSec[5]) / 60}", "мин Z4–5"),
         )
         t == WorkoutType.STAIRS_HOME -> listOf(floors, up, Cell("${s.vSpeed}", "м/мин ↑"), Cell("${s.steps}", "шагов"))
         t == WorkoutType.STAIRS_OUTDOOR -> listOf(floors, up, Cell("${s.vSpeed}", "м/мин ↑"), km)

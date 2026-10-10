@@ -312,13 +312,15 @@ object Coach {
                 headline = "Сегодня — лёгкая тренировка"
                 type = DayType.CARDIO
                 plan += "Кардио в зоне 2: 30–40 мин (пульс ${z(2, 2)}) — орбитрек, велотренажёр или быстрая ходьба."
-                if (hSinceStrength >= 48 && goal != Goal.HEART && !tired && !sore)
+                if (hSinceStrength >= 40 && goal != Goal.HEART && !tired && !sore)
                     plan += "Или облегчённая силовая: 2–3 подхода на упражнение, не до отказа (оставьте 3–4 повтора в запасе)."
                 plan += "Без интервалов в зонах 4–5."
             }
             else -> {
-                val strengthDue = hSinceStrength >= 48 && strengthDays < 3 && !sore
-                val hardDue = hSinceHard >= 72 && hard < 20
+                // Muscles are ready again after ~40 h (the recovery card agrees); for muscle growth strength
+                // comes first: 2–3 strength days a week, intervals only once those are done.
+                val strengthDue = hSinceStrength >= 40 && strengthDays < 3 && !sore
+                val hardDue = hSinceHard >= 72 && hard < 20 && (goal == Goal.HEART || goal == Goal.FAT_LOSS || strengthDays >= 2)
                 when (goal) {
                     Goal.HYBRID -> if (strengthDue) {
                         headline = "Сегодня — силовая (рост мышц)"

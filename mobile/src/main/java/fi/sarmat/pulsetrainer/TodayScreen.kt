@@ -202,7 +202,9 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
             }
             "activity" -> Tile {
                 TileTitle("Активность")
-                val steps = today?.steps ?: passive.lastOrNull()?.takeIf { it.day == today?.day }?.steps ?: 0L
+                // Samsung passes steps to Health Connect with a delay; the watch's own counter is often fresher.
+                val watchToday = passive.lastOrNull()?.takeIf { it.day == today?.day }?.steps ?: 0L
+                val steps = maxOf(today?.steps ?: 0L, watchToday)
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text("%,d".format(steps).replace(',', ' '), color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
                     Text("  / 10 000 шагов", color = Dim, fontSize = 16.sp, modifier = Modifier.padding(bottom = 6.dp))
@@ -210,9 +212,7 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                 Bar(steps / 10000f, Good)
                 Row(Modifier.fillMaxWidth()) {
                     Mini(today?.activeKcal?.roundToInt()?.toString() ?: "—", "акт. ккал", Modifier.weight(1f))
-                    // Samsung puts only part of the distance into Health Connect; steps × stride (≈0.41 × height) fills the gap.
-                    val byStepsM = steps * (p.heightCm * 0.0041)
-                    val distM = maxOf(today?.distanceM ?: 0.0, byStepsM).takeIf { it > 0 }
+                    val distM = today?.distanceM?.takeIf { it > 0 }
                     Mini(distM?.let { "%.1f".format(it / 1000) } ?: "—", "км", Modifier.weight(1f))
                     Mini((today?.floors?.roundToInt() ?: passive.lastOrNull()?.takeIf { it.day == today?.day }?.floors)?.toString() ?: "—", "этажей", Modifier.weight(1f))
                 }

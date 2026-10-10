@@ -276,6 +276,26 @@ object HealthData {
                 }
             } catch (_: Exception) {}
         }
+        // Distance and active calories: the same per-source rule as steps — Samsung Health's own numbers
+        // (they match the Samsung app), not a sum of every app's copies.
+        run {
+            val since = today.minusDays(13).atStartOfDay(zone).toInstant()
+            fun <T : Record> perDay(recs: List<T>, start: (T) -> Instant, pkg: (T) -> String, v: (T) -> Double): Map<Long, Double> =
+                recs.groupBy { start(it).atZone(zone).toLocalDate() }.mapNotNull { (d, l) ->
+                    val bySrc = l.groupBy(pkg).mapValues { (_, x) -> x.sumOf(v) }
+                    val pick = bySrc.entries.firstOrNull { it.key.contains("shealth") }?.value ?: bySrc.values.maxOrNull()
+                    pick?.let { d.atStartOfDay(zone).toInstant().toEpochMilli() to it }
+                }.toMap()
+            if (HealthPermission.getReadPermission(DistanceRecord::class) in granted) try {
+                perDay(read(c, DistanceRecord::class, since, Instant.now(), maxPages = 20), { it.startTime }, { it.metadata.dataOrigin.packageName }, { it.distance.inMeters })
+                    .forEach { (day, m) -> upd(day) { it.copy(distanceM = m) } }
+            } catch (_: Exception) {}
+            if (HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class) in granted) try {
+                perDay(read(c, ActiveCaloriesBurnedRecord::class, since, Instant.now(), maxPages = 20), { it.startTime }, { it.metadata.dataOrigin.packageName }, { it.energy.inKilocalories })
+                    .forEach { (day, k) -> upd(day) { it.copy(activeKcal = k) } }
+            } catch (_: Exception) {}
+        }
+
         // Several apps (Samsung Health, Google Fit, the phone itself…) can write the SAME steps into
         // Health Connect, and the aggregate then adds them up. For the last 14 days the steps are read
         // per source: Samsung Health if present (it matches the watch face), else the biggest single source — never a sum of copies.

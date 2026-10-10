@@ -59,7 +59,7 @@ object WorkoutEngine {
         val paceSecPerKm: Int? = null,
         val speedKmh: Double = 0.0,
         val gpsFix: Boolean = false,
-        val treadSpeed: Double = 8.0,
+        val treadSpeed: Double = 5.0,
         val lapNo: Int = 1,
         val segZoneSec: IntArray = IntArray(6),
         val finishedId: String? = null,
@@ -188,7 +188,7 @@ object WorkoutEngine {
     private var lapStartT = 0L
     private var lapStartDist = 0.0
     private val paceWin = ArrayDeque<Pair<Long, Double>>()
-    private var treadSpeed = 8.0
+    private var treadSpeed = 5.0
 
     private var curHr: Int? = null
     private var curFromStrap = false
