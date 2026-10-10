@@ -84,6 +84,31 @@ object HealthData {
         }
     }
 
+    /**
+     * Today's steps only — a light read for live refresh (same rule as the full load: Samsung Health
+     * as the reference, watch records + phone records that don't overlap them).
+     */
+    suspend fun todaySteps(ctx: Context): Long? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            if (!HealthSync.available(ctx)) return@withContext null
+            val c = HealthConnectClient.getOrCreate(ctx)
+            if (HealthPermission.getReadPermission(StepsRecord::class) !in c.permissionController.getGrantedPermissions()) return@withContext null
+            val start = LocalDate.now(zone).atStartOfDay(zone).toInstant()
+            val recs = read(c, StepsRecord::class, start, Instant.now(), maxPages = 5)
+            val watchType = androidx.health.connect.client.records.metadata.Device.TYPE_WATCH
+            val per = recs.groupBy { it.metadata.dataOrigin.packageName }.map { (pkg, rl) ->
+                val watch = rl.filter { it.metadata.device?.type == watchType }
+                val ws = watch.map { it.startTime.toEpochMilli() to it.endTime.toEpochMilli() }
+                val other = rl.filter { it.metadata.device?.type != watchType }.filter { r ->
+                    ws.none { (y0, y1) -> r.startTime.toEpochMilli() < y1 && r.endTime.toEpochMilli() > y0 }
+                }
+                StepSource(pkg, watch.sumOf { it.count }, other.sumOf { it.count })
+            }
+            stepSources[start.toEpochMilli()] = per
+            (per.firstOrNull { it.pkg.contains("shealth") } ?: per.maxByOrNull { it.total })?.total
+        } catch (_: Exception) { null }
+    }
+
     /** Last breakdown of steps by source (day start → sources), for the «Откуда шаги» view. */
     val stepSources = java.util.concurrent.ConcurrentHashMap<Long, List<StepSource>>()
 

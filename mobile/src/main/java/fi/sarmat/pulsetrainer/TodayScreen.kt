@@ -1,5 +1,6 @@
 package fi.sarmat.pulsetrainer
 
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
@@ -95,14 +96,20 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val stressList by PhoneStore.stress.collectAsState()
     val recovery = remember(workouts, ext, days, passive, check, stressList, minuteTick) { PhoneStore.recovery() }
-    LaunchedEffect(Unit) {
-        onRefresh()
-        // Live: every 10 minutes ask the watch for fresh pulse and re-read the last hours from Health Connect.
-        while (true) {
-            PhoneStore.sendToWatch(ctx, fi.sarmat.pulsetrainer.core.Protocol.CMD_SYNC)
-            PhoneStore.refreshRecent(ctx)
-            minuteTick++
-            kotlinx.coroutines.delay(10 * 60_000L)
+    // Live while the screen is open: every time you come back to the app, then every 5 minutes,
+    // the watch sends its fresh counters and today's steps/pulse are re-read (small reads only).
+    // Nothing runs while the app is closed — no battery cost on the watch or the phone.
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(Unit) { onRefresh() }
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            while (true) {
+                PhoneStore.sendToWatch(ctx, fi.sarmat.pulsetrainer.core.Protocol.CMD_SYNC)
+                kotlinx.coroutines.delay(4000)          // give the watch a moment to answer
+                PhoneStore.refreshRecent(ctx)
+                minuteTick++
+                kotlinx.coroutines.delay(5 * 60_000L)
+            }
         }
     }
 

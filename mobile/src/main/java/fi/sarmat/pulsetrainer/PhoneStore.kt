@@ -91,6 +91,16 @@ object PhoneStore {
     /** Light refresh for the live energy curve: only the last hours of pulse from Health Connect. */
     suspend fun refreshRecent(ctx: Context) {
         try { HealthData.recentHr(ctx)?.let { if (it.isNotEmpty()) hrRecent.value = it } } catch (_: Exception) {}
+        refreshTodaySteps(ctx)
+    }
+
+    /** Live steps for today (a small read, not the whole 90-day load). */
+    suspend fun refreshTodaySteps(ctx: Context) {
+        val s = HealthData.todaySteps(ctx) ?: return
+        val dayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val list = days.value
+        val last = list.lastOrNull()
+        if (last != null && last.day == dayStart && (last.steps ?: 0) < s) days.value = list.dropLast(1) + last.copy(steps = s)
     }
 
     /** Energy 0–100 now, with the day curve and what charged / drained it. */
