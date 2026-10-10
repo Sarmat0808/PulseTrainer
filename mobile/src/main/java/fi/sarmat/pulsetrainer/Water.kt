@@ -19,6 +19,7 @@ import java.time.LocalDate
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /**
  * «Пора выпить воды»: reminders spread evenly from your start time to your end time.
@@ -49,8 +50,15 @@ object Water {
     fun target(): Int = FoodStore.targets(LocalDate.now()).waterMl
     fun drunk(): Int = DayTotals.of(FoodStore.entries(LocalDate.now())).fluidMl
 
-    /** Reminder times today, minutes after midnight. */
-    fun slots(ctx: Context): List<Int> = (from(ctx)..to(ctx) step every(ctx)).toList().ifEmpty { listOf(from(ctx)) }
+    /**
+     * Reminder times, minutes after midnight: spread evenly so the first is at the start time and the
+     * last exactly at the end time (the interval is adjusted a little to fit, e.g. 90 → 93 min).
+     */
+    fun slots(ctx: Context): List<Int> {
+        val a = from(ctx); val b = to(ctx)
+        val n = (Math.round((b - a).toDouble() / every(ctx)).toInt() + 1).coerceAtLeast(2)
+        return (0 until n).map { a + ((b - a) * it.toDouble() / (n - 1)).roundToInt() }
+    }
 
     /** How much should be drunk by this minute of the day (even pace over the window). */
     fun dueBy(ctx: Context, minute: Int): Int {
@@ -63,13 +71,15 @@ object Water {
     fun portion(ctx: Context, minute: Int): Int {
         val left = (target() - drunk()).coerceAtLeast(0)
         val slotsLeft = slots(ctx).count { it >= minute - 5 }.coerceAtLeast(1)
-        return ((ceil(left.toDouble() / slotsLeft / 50) * 50).toInt()).coerceIn(150, 500)
+        return ((left.toDouble() / slotsLeft / 10).roundToInt() * 10).coerceIn(100, 600)
     }
 
     fun planText(ctx: Context): String {
-        val n = slots(ctx).size
-        val per = ((target().toDouble() / n / 50).let { ceil(it) } * 50).toInt()
-        return "Норма ${target()} мл: ~$per мл каждые ${every(ctx)} мин с ${Reminders.hm(from(ctx))} до ${Reminders.hm(to(ctx))} ($n раз)"
+        val sl = slots(ctx); val n = sl.size
+        val per = ((target().toDouble() / n / 10).roundToInt() * 10)
+        val step = (sl.last() - sl.first()) / (n - 1)
+        return "Норма ${target()} мл → $n раз по ~$per мл, каждые ~$step мин с ${Reminders.hm(from(ctx))} до ${Reminders.hm(to(ctx))}" +
+            "\nРаспорядок: " + sl.joinToString(" · ") { Reminders.hm(it) }
     }
 
     fun schedule(ctx: Context, fromWorker: Boolean = false) {
