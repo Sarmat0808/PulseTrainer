@@ -65,6 +65,8 @@ object PhoneLink {
 /** Phone -> watch: switch exercise, pause, finish, next set. */
 class ControlListenerService : WearableListenerService() {
     override fun onMessageReceived(event: MessageEvent) {
+        if (event.path == Protocol.PATH_WATER) { WaterNotify.show(this, String(event.data)); return }
+        if (event.path == Protocol.PATH_WATER_STATE) { WaterNotify.state(this, String(event.data)); return }
         if (event.path == Protocol.PATH_FAV) {
             val list = String(event.data).split(',').mapNotNull { n -> WorkoutType.entries.firstOrNull { it.name == n } }
             Handler(Looper.getMainLooper()).post { Storage.setFavorites(list, fromPhone = true) }

@@ -211,7 +211,16 @@ object FoodStore {
 
     fun targets(d: LocalDate): Targets =
         Nutrition.targets(PhoneStore.profile.value ?: Profile(), PhoneStore.goal.value, trainedOn(d), realTdee = PhoneStore.learnedTdee,
-            trainingMin = trainingMinutes(d))
+            trainingMin = trainingMinutes(d), workoutKcal = workoutKcal(d))
+
+    /** Active kcal of today's workouts (PulseTrainer exact; other apps ~7 kcal/min). */
+    fun workoutKcal(d: LocalDate): Double {
+        val z = ZoneId.systemDefault()
+        val own = PhoneStore.workouts.value.filter { Instant.ofEpochMilli(it.start).atZone(z).toLocalDate() == d }
+        val ext = PhoneStore.ext.value.filter { Instant.ofEpochMilli(it.start).atZone(z).toLocalDate() == d }
+            .filter { e -> PhoneStore.workouts.value.none { w -> e.start < w.end && e.end > w.start } }
+        return own.sumOf { it.kcalActive } + ext.sumOf { it.minutes * 7.0 }
+    }
 
     /** Minutes of training on this day (PulseTrainer + other apps). */
     fun trainingMinutes(d: LocalDate): Int {

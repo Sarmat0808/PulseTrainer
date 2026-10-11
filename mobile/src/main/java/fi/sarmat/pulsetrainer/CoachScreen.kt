@@ -239,6 +239,16 @@ private fun WeightChart(points: List<Pair<Long, Double>>) {
 
 private val dFmt = SimpleDateFormat("d MMM yyyy", Locale("ru"))
 
+private val SETTINGS_CARDS = linkedMapOf(
+    "goal" to "Цель",
+    "data" to "Данные профиля и зоны пульса",
+    "body" to "Замеры тела",
+    "weight" to "История веса",
+    "reminders" to "Отчёты, напоминания, вода",
+    "backup" to "Резервная копия",
+    "font" to "Размер шрифта",
+)
+
 @Composable
 fun ProfileTab() {
     val ctx = LocalContext.current
@@ -250,9 +260,18 @@ fun ProfileTab() {
     var autoRest by remember { mutableStateOf(PhoneStore.autoRest) }
     val changed = p != (stored ?: Profile()) || autoRest != PhoneStore.autoRest
 
+    val sLayout = rememberCardLayout("settings", SETTINGS_CARDS.keys.toList(), emptySet())
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Профиль и настройки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White) }
         item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Профиль и настройки", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                var arrange by remember { mutableStateOf(false) }
+                androidx.compose.material3.TextButton(onClick = { arrange = true }) { Text("⇅", fontSize = 22.sp) }
+                if (arrange) ReorderDialog("settings", SETTINGS_CARDS, emptySet()) { arrange = false }
+            }
+        }
+        val settingsCard: @Composable (String) -> Unit = { id -> when (id) {
+        "goal" -> {
             Section {
                 Text("Цель", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Goal.entries.forEach { g ->
@@ -266,10 +285,10 @@ fun ProfileTab() {
                 }
             }
         }
-        item {
+        "data" -> {
             Section {
                 Text("Данные", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Stepper("Вес, кг", "%.1f".format(p.weightKg), 0.5) { d -> p = p.copy(weightKg = (p.weightKg + d).coerceIn(35.0, 250.0)) }
+                Stepper("Вес, кг", "%.1f".format(p.weightKg), 0.1) { d -> p = p.copy(weightKg = (Math.round((p.weightKg + d) * 10) / 10.0).coerceIn(35.0, 250.0)) }
                 Stepper("Возраст", "${p.age}", 1.0) { d -> p = p.copy(age = (p.age + d.toInt()).coerceIn(14, 90)) }
                 Stepper("Рост, см", "${p.heightCm}", 1.0) { d -> p = p.copy(heightCm = (p.heightCm + d.toInt()).coerceIn(120, 230)) }
                 Row(Modifier.fillMaxWidth().clickable { p = p.copy(male = !p.male) }.padding(vertical = 6.dp)) {
@@ -325,11 +344,11 @@ fun ProfileTab() {
                 if (stored == null) Text("Профиль ещё не пришёл с часов — откройте PulseTrainer на часах.", color = Warn, fontSize = 15.sp)
             }
         }
-        item { BackupCard() }
-        item { FontCard() }
-        item { BodyCard() }
-        item { RemindersCard() }
-        item {
+        "backup" -> BackupCard()
+        "font" -> FontCard()
+        "body" -> BodyCard()
+        "reminders" -> RemindersCard()
+        "weight" -> {
             Section {
                 Text("История веса", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 WeightChart(weights.map { it.time to it.kg })
@@ -339,6 +358,8 @@ fun ProfileTab() {
                 }
             }
         }
+        } }
+        (sLayout.top + sLayout.more).forEach { id -> item(key = "s_$id") { settingsCard(id) } }
     }
 }
 
@@ -414,6 +435,7 @@ private object MeasureTips {
     const val CHEST = "Стоя, руки опущены, мышцы расслаблены, на спокойном выдохе. Лента под лопатками и по самой выступающей части груди, горизонтально."
     const val ARM = "Всегда одну руку и одним способом. Лучше напряжённый: рука согнута под 90°, кулак сжат, бицепс напряжён — лента по самой высокой точке."
     const val THIGH = "Стоя, вес на обе ноги, мышцы расслаблены. Лента горизонтально по самой широкой части — сразу под ягодичной складкой. Всегда одна нога."
+    const val CALF = "Стоя, вес на обе ноги, икра расслаблена. Лента горизонтально по самой широкой части икроножной мышцы. Всегда одна и та же нога."
     const val NECK = "Стоя, смотрите прямо, плечи опущены. Лента сразу под кадыком. Нужна, чтобы посчитать % жира, если его не с чего взять."
     const val FAT = "Если есть умные весы или калипер — внесите. Оставьте пустым — посчитаю по талии, шее и росту (метод ВМС США, точность ±3–4 %)."
     const val GENERAL = "Общее правило: утром до еды и тренировки, одной и той же нерастягивающейся лентой, лента прилегает без вдавливания. Мерьте 2 раза и берите среднее. Раз в 1–2 недели достаточно."
@@ -430,6 +452,7 @@ private fun BodyCard() {
     var arm by remember { mutableStateOf("") }
     var thigh by remember { mutableStateOf("") }
     var neck by remember { mutableStateOf("") }
+    var calf by remember { mutableStateOf("") }
     var fat by remember { mutableStateOf("") }
     fun num(s: String) = s.replace(',', '.').toDoubleOrNull()
     val ctx = LocalContext.current
@@ -452,20 +475,20 @@ private fun BodyCard() {
             MeasureField("Шея, см", neck, MeasureTips.NECK, Modifier.weight(1f)) { neck = it }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MeasureField("Икры, см", calf, MeasureTips.CALF, Modifier.weight(1f)) { calf = it }
             MeasureField("Жир, %", fat, MeasureTips.FAT, Modifier.weight(1f)) { fat = it }
-            Box(Modifier.weight(1f))
         }
         Button(
             onClick = {
-                val e = fi.sarmat.pulsetrainer.core.BodyEntry(System.currentTimeMillis(), num(weight), num(waist), num(chest), num(arm), num(thigh), num(fat), num(neck))
-                if (listOf(e.weightKg, e.waistCm, e.chestCm, e.armCm, e.thighCm, e.bodyFatPct, e.neckCm).all { it == null }) {
+                val e = fi.sarmat.pulsetrainer.core.BodyEntry(System.currentTimeMillis(), num(weight), num(waist), num(chest), num(arm), num(thigh), num(fat), num(neck), num(calf))
+                if (listOf(e.weightKg, e.waistCm, e.chestCm, e.armCm, e.thighCm, e.bodyFatPct, e.neckCm, e.calfCm).all { it == null }) {
                     Toast.makeText(ctx, "Введите хотя бы одно значение", Toast.LENGTH_SHORT).show()
                 } else {
                     PhoneStore.addBody(e)
                     e.weightKg?.let { w ->
                         scope.launch { PhoneStore.profile.value?.let { p -> PhoneStore.updateProfile(ctx, p.copy(weightKg = w)) } }
                     }
-                    weight = ""; waist = ""; chest = ""; arm = ""; thigh = ""; neck = ""; fat = ""
+                    weight = ""; waist = ""; chest = ""; arm = ""; thigh = ""; neck = ""; calf = ""; fat = ""
                     Toast.makeText(ctx, "Замер сохранён", Toast.LENGTH_SHORT).show()
                 }
             },
@@ -475,7 +498,7 @@ private fun BodyCard() {
             val f = e.fatOrEstimate(pr.heightCm, pr.male)
             val parts = listOfNotNull(
                 e.weightKg?.let { "вес %.1f".format(it) }, e.waistCm?.let { "талия %.1f".format(it) }, e.chestCm?.let { "грудь %.1f".format(it) },
-                e.armCm?.let { "бицепс %.1f".format(it) }, e.thighCm?.let { "бедро %.1f".format(it) }, e.neckCm?.let { "шея %.1f".format(it) },
+                e.armCm?.let { "бицепс %.1f".format(it) }, e.thighCm?.let { "бедро %.1f".format(it) }, e.neckCm?.let { "шея %.1f".format(it) }, e.calfCm?.let { "икры %.1f".format(it) },
                 f?.let { (v, est) -> "жир %.1f%%".format(v) + if (est) " (расчёт)" else "" },
             )
             Text("${dFmt.format(Date(e.time))}: " + parts.joinToString(", "), color = Color.White, fontSize = 15.sp)
@@ -607,8 +630,26 @@ private fun BackupCard() {
             color = Good, fontSize = 15.sp)
         Text("Последняя ручная копия: " + if (last > 0) dFmt.format(Date(last)) else "ещё не было", color = Dim, fontSize = 15.sp)
         androidx.compose.material3.Button(onClick = { saveLauncher.launch("PulseTrainer_$stamp.zip") }, modifier = Modifier.fillMaxWidth()) {
-            Text("Сохранить копию (Google Диск / файлы)", fontSize = 16.sp)
+            Text("Сохранить копию в файл…", fontSize = 16.sp)
         }
+        Text("В окне сохранения нажмите ☰ слева вверху — там Google Диск, карта памяти и другие места.", color = Dim, fontSize = 13.sp)
+        OutlinedButton(onClick = {
+            scope.launch {
+                val f = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        val dir = java.io.File(ctx.cacheDir, "share").apply { mkdirs() }
+                        val out = java.io.File(dir, "PulseTrainer_$stamp.zip")
+                        Backup.export(ctx, android.net.Uri.fromFile(out)); out
+                    }.getOrNull()
+                }
+                if (f == null) { Toast.makeText(ctx, "Не удалось создать копию", Toast.LENGTH_LONG).show(); return@launch }
+                last = Backup.lastManual
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/zip")
+                    .putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                ctx.startActivity(android.content.Intent.createChooser(send, "Куда отправить копию"))
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Отправить копию: Google Диск, Telegram, почта…", fontSize = 15.sp) }
         OutlinedButton(onClick = { openLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }, modifier = Modifier.fillMaxWidth()) {
             Text("Восстановить из копии", fontSize = 16.sp)
         }
@@ -709,10 +750,12 @@ private fun LearnCard() {
 @Composable
 private fun WaterSettings() {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var on by remember { mutableStateOf(Water.on(ctx)) }
     var from by remember { mutableStateOf(Water.from(ctx)) }
     var to by remember { mutableStateOf(Water.to(ctx)) }
     var every by remember { mutableStateOf(Water.every(ctx)) }
+    var where by remember { mutableStateOf(Water.where(ctx)) }
     fun save() = Water.set(ctx, on, from, to, every)
     fun pick(m: Int, set: (Int) -> Unit) {
         try { android.app.TimePickerDialog(ctx, { _, h, mm -> set(h * 60 + mm); save() }, m / 60, m % 60, true).show() } catch (_: Exception) {}
@@ -726,14 +769,24 @@ private fun WaterSettings() {
                 OutlinedButton(onClick = { pick(to) { to = it } }, modifier = Modifier.weight(1f)) { Text("До ${Reminders.hm(to)}", fontSize = 16.sp) }
             }
             Stepper("Каждые", "$every мин", 15.0) { d -> every = (every + d.toInt()).coerceIn(30, 240); save() }
+            Text("Куда приходит", color = Dim, fontSize = 15.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("Часы", "Телефон", "Оба").forEachIndexed { i, t ->
+                    androidx.compose.material3.FilterChip(selected = where == i, onClick = { where = i; Water.setWhere(ctx, i) },
+                        label = { Text(t, fontSize = 15.sp) })
+                }
+            }
             Text(remember(from, to, every) { Water.planText(ctx) }, color = Good, fontSize = 15.sp)
-            Text("Норма за день от времени не зависит — организму нужно столько же воды. От окна меняются количество напоминаний и порция.",
-                color = Dim, fontSize = 13.sp)
+            OutlinedButton(onClick = { scope.launch { Water.remind(ctx, snoozed = true) } }, modifier = Modifier.fillMaxWidth()) {
+                Text("Проверить напоминание сейчас")
+            }
         }
-        Text("Норма считается из профиля: вес, возраст, пол (≈35 мл/кг, после 55 лет 30 мл/кг, ~20 % воды приходит с едой) " +
-            "+ 500 мл за каждый час тренировки сегодня. Каждое напоминание пересчитывает порцию по тому, сколько уже выпито; " +
-            "если вы идёте с опережением — напоминание не придёт.", color = Dim, fontSize = 14.sp)
-        Text("Уведомления приходят и на часы, с кнопкой «Выпил» — вода сразу запишется. " +
-            "Если на часах их нет: Galaxy Wearable → Уведомления → включите PulseTrainer.", color = Dim, fontSize = 14.sp)
+        Expander("Как считается норма") {
+            Text("База: 2,5 л для мужчин и 2,0 л для женщин (нормы EFSA) или 33 мл на кг веса, если так больше " +
+                "(с 65 лет — 30 мл/кг). Около 20 % воды приходит с едой, поэтому в напитках — 80 % от этого. " +
+                "Плюс тренировки сегодня: ~1 мл воды на каждую сожжённую ккал (потери с потом), по вашим реальным тренировкам.", color = Dim, fontSize = 14.sp)
+            Text("Каждое напоминание пересчитывает порцию по тому, сколько уже выпито. «Отложить» — напомню через 30 мин, " +
+                "и порция будет больше на пропущенное. Если вы идёте с опережением — напоминание не придёт.", color = Dim, fontSize = 14.sp)
+        }
     }
 }

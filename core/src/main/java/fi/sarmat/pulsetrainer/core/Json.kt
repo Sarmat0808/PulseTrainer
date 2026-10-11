@@ -226,6 +226,9 @@ object Protocol {
     const val PATH_CONTROL = "/control"           // phone -> watch commands
     const val PATH_PROFILE = "/profile"           // DataItem: profile + morning tests (for reports)
     const val PATH_PROFILE_SET = "/control/profile" // phone -> watch: profile edited on the phone
+    const val PATH_WATER = "/control/water"       // phone -> watch: «drink water» reminder (JSON)
+    const val PATH_WATER_STATE = "/control/waterstate" // phone -> watch: after logging, how much is left (JSON)
+    const val PATH_WATER_ACTION = "/live/water"   // watch -> phone: "drank:<ml>" or "snooze:<min>"
     const val PATH_FAV = "/control/fav"           // phone -> watch: favourite workouts (comma-separated)
     const val PATH_COACH = "/control/coach"       // phone -> watch: today's readiness and plan (JSON)
     const val PATH_ECG = "/ecg/"                  // DataItem: an ECG recording from the H10 (asset "json")

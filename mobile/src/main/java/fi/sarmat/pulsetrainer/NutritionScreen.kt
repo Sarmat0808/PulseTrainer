@@ -519,13 +519,15 @@ private fun MyFoodsCard(date: LocalDate) {
     val my = remember(v) { FoodStore.myFoods() }
     var pick by remember { mutableStateOf<Food?>(null) }
     var edit by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(false) }
     Section {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Мои блюда", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("Мои блюда · ${my.size}" + if (open) " ▲" else " ▼", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f).clickable { open = !open }.padding(vertical = 4.dp))
             Text("Изменить", color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { edit = true }.padding(6.dp))
         }
-        if (my.isEmpty()) Text("Добавьте свои обычные блюда — потом только вводите граммы.", color = Dim, fontSize = 15.sp)
-        my.forEach { f ->
+        if (open && my.isEmpty()) Text("Добавьте свои обычные блюда — потом только вводите граммы.", color = Dim, fontSize = 15.sp)
+        if (open) my.forEach { f ->
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { pick = f }.padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically

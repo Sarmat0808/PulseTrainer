@@ -62,6 +62,7 @@ data class BodyEntry(
     val thighCm: Double? = null,
     val bodyFatPct: Double? = null,
     val neckCm: Double? = null,
+    val calfCm: Double? = null,
 ) {
     /** % fat: entered, or estimated by the US Navy tape method (men: waist, neck, height; ±3–4 %). */
     fun fatOrEstimate(heightCm: Int, male: Boolean): Pair<Double, Boolean>? {

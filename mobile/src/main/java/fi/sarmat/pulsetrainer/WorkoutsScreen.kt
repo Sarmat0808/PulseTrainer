@@ -97,6 +97,7 @@ fun WorkoutsScreen(
         }
     }
 
+    var histOpen by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -107,17 +108,19 @@ fun WorkoutsScreen(
         item { live() }
         layout.top.forEach { id -> item(key = id) { card(id) } }
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("История", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            // History is folded: a long list — open it when you need it.
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF232B35)).clickable { histOpen = !histOpen }
+                .padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("История · ${rows.size}" + if (histOpen) " ▲" else " ▼", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Text(if (showSamsung) "+ Samsung Health ✓" else "+ Samsung Health", color = if (showSamsung) Accent else Dim, fontSize = 15.sp,
                     modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { showSamsung = !showSamsung }.padding(6.dp))
             }
         }
-        if (rows.isEmpty()) item {
+        if (histOpen && rows.isEmpty()) item {
             Text("Пока пусто. Завершите тренировку на часах — она появится здесь автоматически.", color = Dim, fontSize = 16.sp)
         }
         var lastMonth = ""
-        rows.forEachIndexed { idx, r ->
+        if (histOpen) rows.forEachIndexed { idx, r ->
             val m = monthFmt.format(Date(r.start)).replaceFirstChar { it.uppercase() }
             if (m != lastMonth) {
                 lastMonth = m

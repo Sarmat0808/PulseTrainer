@@ -18,6 +18,8 @@ import java.time.Duration
 import java.time.LocalDate
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -95,15 +97,68 @@ object Water {
         wm.enqueueUniqueWork(WORK, if (fromWorker) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.REPLACE, req)
     }
 
-    fun remind(ctx: Context) {
+    /** Where reminders go: 0 = watch (phone if the watch isn't reachable), 1 = phone, 2 = both. */
+    fun where(ctx: Context) = prefs(ctx).getInt("waterWhere", 0)
+    fun setWhere(ctx: Context, w: Int) { prefs(ctx).edit().putInt("waterWhere", w).apply() }
+    const val ACTION_SNOOZE = "fi.sarmat.pulsetrainer.WATER_SNOOZE"
+    const val SNOOZE_MIN = 30
+
+    /** «Отложить»: one extra reminder in 30 min; its portion is recalculated then (the skipped water is added). */
+    fun snooze(ctx: Context, min: Int = SNOOZE_MIN) {
+        val req = OneTimeWorkRequestBuilder<WaterWorker>().setInitialDelay(min.toLong(), TimeUnit.MINUTES)
+            .setInputData(androidx.work.workDataOf("snooze" to true)).build()
+        WorkManager.getInstance(ctx).enqueueUniqueWork("water-snooze", ExistingWorkPolicy.REPLACE, req)
+    }
+
+    /** Logs water and tells the watch how much is left. */
+    suspend fun drank(ctx: Context, ml: Int) {
+        val water = FoodStore.foods().firstOrNull { it.id == "water" } ?: return
+        FoodStore.add(LocalDate.now(), water, ml.toDouble())
+        sendState(ctx, "✓ +$ml мл")
+    }
+
+    private fun nextText(ctx: Context): String {
+        val now = ZonedDateTime.now(); val m = now.hour * 60 + now.minute
+        return slots(ctx).firstOrNull { it > m }?.let { "следующее в ${Reminders.hm(it)}" } ?: "на сегодня всё"
+    }
+
+    suspend fun sendState(ctx: Context, head: String) {
+        val drunk = drunk(); val target = target()
+        val js = org.json.JSONObject().put("head", head).put("drunk", drunk).put("target", target)
+            .put("left", (target - drunk).coerceAtLeast(0)).put("next", nextText(ctx)).toString()
+        try {
+            PhoneStore.watchNodes(ctx).forEach {
+                com.google.android.gms.wearable.Wearable.getMessageClient(ctx)
+                    .sendMessage(it.id, fi.sarmat.pulsetrainer.core.Protocol.PATH_WATER_STATE, js.toByteArray()).await()
+            }
+        } catch (_: Exception) {}
+    }
+
+    suspend fun remind(ctx: Context, snoozed: Boolean = false) {
         val now = ZonedDateTime.now()
         val m = now.hour * 60 + now.minute
-        if (m < from(ctx) - 5 || m > to(ctx) + 5) return
+        if (!snoozed && (m < from(ctx) - 5 || m > to(ctx) + 5)) return
         val drunk = drunk(); val target = target(); val due = dueBy(ctx, m)
         if (drunk >= target) return                    // norm reached — no more reminders today
-        if (drunk >= due + 150) return                 // well ahead of schedule — stay quiet
+        if (!snoozed && drunk >= due + 150) return     // well ahead of schedule — stay quiet
         val ml = portion(ctx, m)
         val behind = (due - drunk).coerceAtLeast(0)
+        val text = "Выпито $drunk из $target мл" + if (behind >= 100) " · отстаёте на $behind мл" else " · по графику"
+
+        // 1) The watch: its own notification with «Выпил» and «Отложить».
+        var onWatch = false
+        if (where(ctx) != 1) try {
+            val js = org.json.JSONObject().put("ml", ml).put("text", text).put("drunk", drunk).put("target", target)
+                .put("left", target - drunk).put("snooze", SNOOZE_MIN).toString()
+            PhoneStore.watchNodes(ctx).forEach {
+                com.google.android.gms.wearable.Wearable.getMessageClient(ctx)
+                    .sendMessage(it.id, fi.sarmat.pulsetrainer.core.Protocol.PATH_WATER, js.toByteArray()).await()
+                onWatch = true
+            }
+        } catch (_: Exception) {}
+        if (onWatch && where(ctx) == 0) return
+
+        // 2) The phone (always if chosen, or when the watch can't be reached).
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CH, "Вода", NotificationManager.IMPORTANCE_DEFAULT))
         val open = PendingIntent.getActivity(ctx, NOTIF_ID, Intent(ctx, MainActivity::class.java),
@@ -111,7 +166,9 @@ object Water {
         val drank = PendingIntent.getBroadcast(ctx, NOTIF_ID + 1,
             Intent(ctx, WaterReceiver::class.java).setAction(ACTION_DRANK).putExtra("ml", ml),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val text = "Выпито $drunk из $target мл" + if (behind >= 100) " · отстаёте на $behind мл" else " · по графику"
+        val later = PendingIntent.getBroadcast(ctx, NOTIF_ID + 2,
+            Intent(ctx, WaterReceiver::class.java).setAction(ACTION_SNOOZE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = NotificationCompat.Builder(ctx, CH)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("💧 Выпейте ~$ml мл воды")
@@ -119,7 +176,9 @@ object Water {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text + "\nДо ${Reminders.hm(to(ctx))} осталось ${target - drunk} мл."))
             .setContentIntent(open)
             .addAction(0, "Выпил $ml мл", drank)
+            .addAction(0, "Отложить ${SNOOZE_MIN} мин", later)
             .setAutoCancel(true)
+            .setLocalOnly(onWatch)   // don't show a second copy on the watch
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
         try { nm.notify(NOTIF_ID, n) } catch (_: SecurityException) {}
@@ -128,23 +187,32 @@ object Water {
 
 class WaterWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
-        try { Water.remind(applicationContext) } catch (_: Exception) {}
-        Water.schedule(applicationContext, fromWorker = true)
+        val snoozed = inputData.getBoolean("snooze", false)
+        try { Water.remind(applicationContext, snoozed) } catch (_: Exception) {}
+        if (!snoozed) Water.schedule(applicationContext, fromWorker = true)
         return Result.success()
     }
 }
 
-/** «Выпил N мл» button on the phone or the watch: logs the water without opening the app. */
+/** «Выпил» / «Отложить» on the phone notification. */
 class WaterReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        if (intent.action != Water.ACTION_DRANK) return
-        val ml = intent.getIntExtra("ml", 250)
-        try {
-            FoodStore.init(ctx)
-            val water = FoodStore.foods().firstOrNull { it.id == "water" }
-            if (water != null) FoodStore.add(LocalDate.now(), water, ml.toDouble())
-            Toast.makeText(ctx, "💧 +$ml мл · всего ${Water.drunk()} из ${Water.target()}", Toast.LENGTH_SHORT).show()
-        } catch (_: Exception) {}
+        val app = ctx.applicationContext
+        when (intent.action) {
+            Water.ACTION_DRANK -> {
+                val ml = intent.getIntExtra("ml", 250)
+                val done = goAsync()
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try { Water.drank(app, ml) } catch (_: Exception) {}
+                    done.finish()
+                }
+                Toast.makeText(ctx, "💧 +$ml мл", Toast.LENGTH_SHORT).show()
+            }
+            Water.ACTION_SNOOZE -> {
+                Water.snooze(app)
+                Toast.makeText(ctx, "Напомню через ${Water.SNOOZE_MIN} мин", Toast.LENGTH_SHORT).show()
+            }
+        }
         ctx.getSystemService(NotificationManager::class.java)?.cancel(Water.NOTIF_ID)
     }
 }

@@ -180,6 +180,8 @@
             android:exported="true"
             android:permission="com.google.android.wearable.healthservices.permission.PASSIVE_DATA_BINDING" />
 
+        <receiver android:name=".WaterActionReceiver" android:exported="false" />
+
         <service
             android:name=".ControlListenerService"
             android:exported="true">

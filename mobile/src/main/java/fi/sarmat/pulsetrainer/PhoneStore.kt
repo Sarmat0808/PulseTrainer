@@ -318,7 +318,7 @@ object PhoneStore {
         val a = JSONArray()
         list.forEach {
             a.put(JSONObject().put("t", it.time).put("w", it.weightKg).put("waist", it.waistCm).put("chest", it.chestCm)
-                .put("arm", it.armCm).put("thigh", it.thighCm).put("fat", it.bodyFatPct).put("neck", it.neckCm))
+                .put("arm", it.armCm).put("thigh", it.thighCm).put("fat", it.bodyFatPct).put("neck", it.neckCm).put("calf", it.calfCm))
         }
         return a.toString()
     }
@@ -355,7 +355,7 @@ object PhoneStore {
             val a = JSONArray(prefs.getString("body", "[]"))
             (0 until a.length()).map { i ->
                 val o = a.getJSONObject(i)
-                BodyEntry(o.getLong("t"), o.d("w"), o.d("waist"), o.d("chest"), o.d("arm"), o.d("thigh"), o.d("fat"), o.d("neck"))
+                BodyEntry(o.getLong("t"), o.d("w"), o.d("waist"), o.d("chest"), o.d("arm"), o.d("thigh"), o.d("fat"), o.d("neck"), o.d("calf"))
             }
         } catch (_: Exception) { emptyList() }
         lastWatchContact.value = prefs.getLong("lastWatch", 0L)
@@ -642,6 +642,21 @@ class WatchListenerService : WearableListenerService() {
     override fun onMessageReceived(event: MessageEvent) {
         if (event.path == Protocol.PATH_LIVE) {
             try { PhoneStore.live.value = Protocol.Live.fromJson(String(event.data)); PhoneStore.touchWatch() } catch (_: Exception) {}
+        }
+        if (event.path == Protocol.PATH_WATER_ACTION) {
+            // «Выпил» / «Отложить» pressed on the watch.
+            val cmd = String(event.data)
+            runBlocking {
+                try {
+                    when {
+                        cmd.startsWith("drank:") -> Water.drank(this@WatchListenerService, cmd.removePrefix("drank:").toIntOrNull() ?: 250)
+                        cmd.startsWith("snooze:") -> {
+                            Water.snooze(this@WatchListenerService, cmd.removePrefix("snooze:").toIntOrNull() ?: Water.SNOOZE_MIN)
+                            Water.sendState(this@WatchListenerService, "Отложено на ${Water.SNOOZE_MIN} мин")
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
         }
     }
 
