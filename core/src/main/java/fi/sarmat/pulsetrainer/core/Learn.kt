@@ -38,9 +38,15 @@ object Learn {
     /** [load] = daily training load (TRIMP) for consecutive days, oldest first, today last. */
     fun form(load: List<Double>): Form {
         val kF = 1 - exp(-1.0 / 42); val kA = 1 - exp(-1.0 / 7)
-        var ctl = 0.0; var atl = 0.0
+        // Days before the first recorded workout are UNKNOWN, not rest. Starting fitness at zero made
+        // a person who already trained look «overloaded» (fitness grows over ~6 weeks, fatigue in days).
+        // So both start from your typical daily load of the first two recorded weeks.
+        val first = load.indexOfFirst { it > 0 }
+        val data = if (first < 0) emptyList() else load.drop(first)
+        val seed = data.take(14).takeIf { it.isNotEmpty() }?.average() ?: 0.0
+        var ctl = seed; var atl = seed
         val ctlHist = ArrayList<Double>()
-        load.forEach { l -> ctl += (l - ctl) * kF; atl += (l - atl) * kA; ctlHist += ctl }
+        data.forEach { l -> ctl += (l - ctl) * kF; atl += (l - atl) * kA; ctlHist += ctl }
         val tsb = ctl - atl
         val fc = ArrayList<Int>()
         var c = ctl; var a = atl
@@ -60,7 +66,8 @@ object Learn {
             f <= 20 -> "Свежесть" to "Вы отдохнули — отличный день для тяжёлой тренировки или рекорда."
             else -> "Детренированность" to "Давно мало нагрузки — форма начнёт снижаться. Пора вернуться к тренировкам."
         }
-        return Form(ctl.roundToInt(), atl.roundToInt(), f, fc, toFresh, label, advice, trend, load.count { it > 0 } >= 5)
+        val note = if (data.size in 1 until 42) " Данных пока ${data.size} дн. из 42 — оценка приблизительная." else ""
+        return Form(ctl.roundToInt(), atl.roundToInt(), f, fc, toFresh, label, advice + note, trend, data.count { it > 0 } >= 5)
     }
 
     // ======================= 2. Real energy use & weight forecast =======================
