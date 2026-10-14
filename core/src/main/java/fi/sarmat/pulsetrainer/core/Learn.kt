@@ -43,7 +43,8 @@ object Learn {
         // So both start from your typical daily load of the first two recorded weeks.
         val first = load.indexOfFirst { it > 0 }
         val data = if (first < 0) emptyList() else load.drop(first)
-        val seed = data.take(14).takeIf { it.isNotEmpty() }?.average() ?: 0.0
+        // Typical load = the average of everything we have (up to 6 weeks), so a few empty first days don't drag it down.
+        val seed = data.take(42).takeIf { it.isNotEmpty() }?.average() ?: 0.0
         var ctl = seed; var atl = seed
         val ctlHist = ArrayList<Double>()
         data.forEach { l -> ctl += (l - ctl) * kF; atl += (l - atl) * kA; ctlHist += ctl }
@@ -110,12 +111,16 @@ object Learn {
             if (weeks >= 1) (b - a) / weeks else null
         } else null
         val avgIn = food.takeIf { it.isNotEmpty() }?.map { it.second }?.average()
-        val enough = food.size >= need && weekly != null
-        val tdee = if (enough) (avgIn!! - weekly!! * 7700 / 7).roundToInt().coerceIn(1500, 5500) else null
+        // From 7 full days the real number starts to count, mixed with the formula; from 14 days it is fully yours.
+        val partial = food.size >= 7 && weekly != null
+        val learned = if (partial) (avgIn!! - weekly!! * 7700 / 7).coerceIn(1500.0, 5500.0) else null
+        val share = (food.size / need.toDouble()).coerceAtMost(1.0)
+        val tdee = learned?.let { (formulaTdee * (1 - share) + it * share).roundToInt() }
         val useT = tdee ?: formulaTdee
         val wNow = ema
         val w4 = if (wNow != null && avgIn != null) wNow + (avgIn - useT) * 28 / 7700 else null
         val text = when {
+            tdee != null && food.size < need -> "Ваш расход ≈ $tdee ккал/день: уже ${food.size} дней еды и веса (по ним ≈ ${learned!!.roundToInt()}), уточняется до $need дней. Норма калорий уже считается от него."
             tdee != null -> "Ваш реальный расход ≈ $tdee ккал/день (по ${food.size} дням еды и весу). Норма калорий теперь считается от него."
             else -> "Тренер учится: дней с полным дневником ${food.size} из $need и нужны взвешивания хотя бы раз в неделю. Пока расход по формуле ≈ $formulaTdee ккал."
         }
