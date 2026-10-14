@@ -137,7 +137,10 @@ data class SetRecord(
     val restSec: Int?,
 )
 
-data class Lap(val start: Long, val end: Long, val distanceM: Double)
+data class Lap(val start: Long, val end: Long, val distanceM: Double, val activeSec: Int = 0) {
+    /** Moving time of the lap (pauses excluded); old laps without it fall back to clock time. */
+    val sec: Int get() = if (activeSec > 0) activeSec else ((end - start) / 1000).toInt()
+}
 
 /**
  * One exercise inside a session. A session can contain several segments

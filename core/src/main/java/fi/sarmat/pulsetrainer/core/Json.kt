@@ -50,7 +50,7 @@ object WorkoutJson {
             }
             so.put("sets", sets)
             val laps = JSONArray()
-            s.laps.forEach { laps.put(JSONObject().put("start", it.start).put("end", it.end).put("d", it.distanceM)) }
+            s.laps.forEach { laps.put(JSONObject().put("start", it.start).put("end", it.end).put("d", it.distanceM).put("a", it.activeSec)) }
             so.put("laps", laps)
             segs.put(so)
         }
@@ -90,7 +90,7 @@ object WorkoutJson {
             val lapsArr = so.optJSONArray("laps") ?: JSONArray()
             val laps = (0 until lapsArr.length()).map {
                 val x = lapsArr.getJSONObject(it)
-                Lap(x.getLong("start"), x.getLong("end"), x.optDouble("d"))
+                Lap(x.getLong("start"), x.getLong("end"), x.optDouble("d"), x.optInt("a", 0))
             }
             Segment(
                 type = WorkoutType.of(so.getString("type")),

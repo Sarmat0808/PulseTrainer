@@ -285,8 +285,8 @@ object WorkoutEngine {
             Mode.ROUNDS -> if (phase == Phase.WORK) endRound(now) else startRound(now)
             Mode.CARDIO -> {
                 if (segDist - lapStartDist > 10 || type.treadmill || !type.gps) {
-                    laps.add(Lap(lapStartT, now, segDist - lapStartDist))
-                    lapStartT = now; lapStartDist = segDist
+                    laps.add(Lap(lapStartT, now, segDist - lapStartDist, activeSec - lapActiveMark))
+                    lapStartT = now; lapStartDist = segDist; lapActiveMark = activeSec
                     Haptics.lap()
                 }
             }
@@ -403,7 +403,7 @@ object WorkoutEngine {
                 val z = Physiology.zoneOf(cur, bounds)
                 segZone[z]++
                 segTrimp += Physiology.trimpPerSec(z)
-                val k = Physiology.kcalPerMin(cur, profile) / 60.0
+                val k = (if (type.mode == Mode.SETS) Physiology.kcalPerMinStrength(cur, profile) else Physiology.kcalPerMin(cur, profile)) / 60.0
                 segKcal += k
                 segKcalAct += max(0.0, k - Physiology.restingKcalPerMin(profile) / 60.0)
                 segHrSum += cur; segHrN++
@@ -462,8 +462,8 @@ object WorkoutEngine {
         while (paceWin.isNotEmpty() && now - paceWin.first().first > 30_000) paceWin.removeFirst()
         val lapEvery = if (type.lapM > 0) type.lapM else 1000
         if (segDist - lapStartDist >= lapEvery) {
-            laps.add(Lap(lapStartT, now, segDist - lapStartDist))
-            lastLapSec = ((now - lapStartT) / 1000).toInt()
+            laps.add(Lap(lapStartT, now, segDist - lapStartDist, activeSec - lapActiveMark))
+            lastLapSec = activeSec - lapActiveMark
             lapActiveMark = activeSec
             lapStartT = now; lapStartDist = segDist
             if (kmAlertOn) Haptics.lap()
@@ -503,7 +503,7 @@ object WorkoutEngine {
         lastLoc = null
         lastFixNs = 0L
         gpsFix = false
-        lapStartT = now; lapStartDist = 0.0
+        lapStartT = now; lapStartDist = 0.0; lapActiveMark = activeSec
         paceWin.clear()
         moveWin.clear(); slowSec = 0; autoPaused = false; lastLapSec = null; ascent = 0.0; lastAlt = null
         climbHist.clear()
@@ -529,7 +529,7 @@ object WorkoutEngine {
                 sets.add(SetRecord(setStart, now, 0, setPeak, null, null))
             }
             Mode.CARDIO -> if (laps.isNotEmpty() && segDist - lapStartDist > 50) {
-                laps.add(Lap(lapStartT, now, segDist - lapStartDist))
+                laps.add(Lap(lapStartT, now, segDist - lapStartDist, activeSec - lapActiveMark))
             }
         }
         if (segActive < 10 && segments.isNotEmpty() && sets.isEmpty()) return // accidental switch: drop

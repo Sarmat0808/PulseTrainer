@@ -34,6 +34,17 @@ object Report {
             "с конкретными упражнениями, подходами, отдыхом и целевыми зонами пульса. " +
             "Мои цели: набор мышечной массы и укрепление сердца."
 
+    const val PROMPT_FULL =
+        "Ты — опытный тренер, спортивный физиолог и диетолог. Ниже ВСЕ мои данные за период: профиль, " +
+            "как приложение считает мои нормы, каждый день (сон, пульс покоя, шаги, тренировки, еда, вода, вес), " +
+            "история веса и замеров тела, все тренировки с пульсом и подходами, питание по приёмам пищи. " +
+            "1) Оцени, что я делаю правильно и что неправильно: тренировки (объём, интенсивность, зоны, восстановление), " +
+            "сон, ежедневная активность, питание (калории, белок, жиры, углеводы, время приёмов пищи, вода), динамика веса, талии и жира. " +
+            "2) Проверь расчёты приложения (норма калорий, БЖУ, воды, калории тренировок, восстановление) — где они могут ошибаться для меня. " +
+            "3) Найди связи: как сон и еда влияют на пульс покоя и тренировки. " +
+            "4) Дай конкретный план на 2 недели: тренировки по дням, калории и БЖУ, вода, сон — и 3 главных изменения по приоритету. " +
+            "Пиши просто и по делу, с цифрами из моих данных."
+
     // ---------------- Single workout ----------------
 
     fun workoutText(w: Workout, p: Profile?, hrv: List<HrvRecord>, daily: List<DailyStats> = emptyList(), goal: Goal? = null): String {
@@ -52,23 +63,28 @@ object Report {
 
     // ---------------- Period ----------------
 
-    fun periodText(all: List<Workout>, days: Int, p: Profile?, hrv: List<HrvRecord>, daily: List<DailyStats> = emptyList(), goal: Goal? = null, weights: List<WeightEntry> = emptyList()): String {
+    fun periodText(all: List<Workout>, days: Int, p: Profile?, hrv: List<HrvRecord>, daily: List<DailyStats> = emptyList(), goal: Goal? = null, weights: List<WeightEntry> = emptyList(),
+                   /** Only the training part (the full «about me» report writes profile, weight and days itself). */
+                   onlyWorkouts: Boolean = false): String {
         val now = System.currentTimeMillis()
         val from = now - days * 86400_000L
         val list = all.filter { it.start >= from }.sortedBy { it.start }
         val sb = StringBuilder()
-        sb.appendLine("# Сводка тренировок за $days дней (${d(from)} — ${d(now)})")
-        sb.appendLine()
-        sb.appendLine("**Запрос к ИИ:** $PROMPT_MANY")
-        sb.appendLine()
-        profile(sb, p, list.lastOrNull()?.zoneBounds ?: p?.let { Physiology.zoneBounds(it) }, goal)
-        val wInPeriod = weights.filter { it.time >= from }.sortedBy { it.time }
+        if (onlyWorkouts) sb.appendLine("# Тренировки за $days дней").appendLine()
+        else {
+            sb.appendLine("# Сводка тренировок за $days дней (${d(from)} — ${d(now)})")
+            sb.appendLine()
+            sb.appendLine("**Запрос к ИИ:** $PROMPT_MANY")
+            sb.appendLine()
+            profile(sb, p, list.lastOrNull()?.zoneBounds ?: p?.let { Physiology.zoneBounds(it) }, goal)
+        }
+        val wInPeriod = if (onlyWorkouts) emptyList() else weights.filter { it.time >= from }.sortedBy { it.time }
         if (wInPeriod.isNotEmpty()) {
             sb.appendLine("## Вес")
             sb.appendLine(wInPeriod.joinToString("; ") { "${d(it.time)}: ${"%.1f".format(Locale.US, it.kg)} кг" })
             sb.appendLine()
         }
-        dailyTable(sb, daily.filter { it.day >= from - 86400_000L }, "Сон и показатели часов по дням")
+        if (!onlyWorkouts) dailyTable(sb, daily.filter { it.day >= from - 86400_000L }, "Сон и показатели часов по дням")
 
         if (list.isEmpty()) {
             sb.appendLine("Тренировок PulseTrainer за период нет (тренировки из Samsung Health — ниже, если есть).")
@@ -149,6 +165,8 @@ object Report {
         sb.appendLine()
     }
 
+    fun profileText(p: Profile?, bounds: IntArray?, goal: Goal?): String = StringBuilder().also { profile(it, p, bounds, goal) }.toString()
+
     private fun profile(sb: StringBuilder, p: Profile?, bounds: IntArray?, goal: Goal? = null) {
         sb.appendLine("## Профиль")
         if (goal != null) sb.appendLine("- Цель: ${goal.title}")
@@ -189,6 +207,7 @@ object Report {
             if (s.sets.isNotEmpty()) {
                 val rounds = s.type.mode == Mode.ROUNDS
                 sb.appendLine()
+                if (!rounds && s.sets.none { it.reps > 0 }) sb.appendLine("_Подходы найдены автоматически по скачкам пульса — это приблизительно: короткие «подходы» по 5–10 с часто означают переход между тренажёрами._")
                 sb.appendLine("| ${if (rounds) "Раунд" else "Подход"} | Время | Повторы | Пик пульса | Падение за 60 с | Отдых после |")
                 sb.appendLine("|---|---|---|---|---|---|")
                 s.sets.forEachIndexed { n, x ->
@@ -201,7 +220,7 @@ object Report {
                 sb.appendLine("| Круг | Дистанция, м | Время | Темп /км | Ср. пульс |")
                 sb.appendLine("|---|---|---|---|---|")
                 s.laps.forEachIndexed { n, l ->
-                    val sec = ((l.end - l.start) / 1000).toInt()
+                    val sec = l.sec
                     val pace = if (l.distanceM > 0) (sec / (l.distanceM / 1000.0)).toInt() else null
                     val hrs = w.hr.filter { it.t in l.start..l.end }
                     val avg = if (hrs.isEmpty()) "—" else (hrs.sumOf { it.bpm } / hrs.size).toString()
@@ -229,7 +248,7 @@ object Report {
         sb.appendLine("|---|---|---|---|")
         list.sortedBy { it.time }.forEach {
             val st = when (it.status) { 0 -> "зелёный"; 1 -> "жёлтый"; 2 -> "красный"; else -> "база" }
-            sb.appendLine("| ${d(it.time)} | ${it.rmssd.roundToInt()} | ${it.restHr} | $st |")
+            sb.appendLine("| ${d(it.time)} ${SimpleDateFormat("HH:mm", ru).format(Date(it.time))} | ${if (it.rmssd > 0) it.rmssd.roundToInt().toString() else "— (тест часами, без ремня)"} | ${it.restHr} | $st |")
         }
         sb.appendLine()
     }

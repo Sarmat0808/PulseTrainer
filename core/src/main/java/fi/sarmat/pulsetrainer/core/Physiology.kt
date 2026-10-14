@@ -76,6 +76,16 @@ object Physiology {
 
     fun restingKcalPerMin(p: Profile): Double = bmr(p) / 1440.0
 
+    /**
+     * Calories for strength work. The pulse equation was built on steady cardio; with weights the pulse
+     * rises from straining and breath-holding, not only from oxygen use, so pulse-based counts overstate
+     * strength sessions by roughly a quarter. The part above rest is counted at 80 %.
+     */
+    fun kcalPerMinStrength(hr: Int, p: Profile): Double {
+        val rest = restingKcalPerMin(p)
+        return rest + (kcalPerMin(hr, p) - rest) * 0.8
+    }
+
     /** Edwards TRIMP weight for one second in this zone. */
     fun trimpPerSec(zone: Int): Double = zone / 60.0
 

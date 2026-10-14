@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import fi.sarmat.pulsetrainer.core.Gpx
+import fi.sarmat.pulsetrainer.core.Meals
 import fi.sarmat.pulsetrainer.core.Report
 import fi.sarmat.pulsetrainer.core.Workout
 import fi.sarmat.pulsetrainer.core.WorkoutJson
@@ -27,7 +28,7 @@ object Share {
 
     private fun stamp(t: Long) = SimpleDateFormat("yyyy-MM-dd_HH-mm", Locale.US).format(Date(t))
 
-    private fun allJson(list: List<Workout>): String {
+    private fun allJson(list: List<Workout>, foodDays: Int = 90): String {
         val arr = JSONArray()
         list.forEach { arr.put(JSONObject(WorkoutJson.toJson(it))) }
         val o = JSONObject().put("workouts", arr)
@@ -48,17 +49,29 @@ object Share {
         val body = JSONArray()
         PhoneStore.body.value.forEach {
             body.put(JSONObject().put("t", it.time).put("weight_kg", it.weightKg).put("waist_cm", it.waistCm).put("chest_cm", it.chestCm)
-                .put("arm_cm", it.armCm).put("thigh_cm", it.thighCm).put("body_fat_pct", it.bodyFatPct))
+                .put("arm_cm", it.armCm).put("thigh_cm", it.thighCm).put("neck_cm", it.neckCm).put("calf_cm", it.calfCm).put("body_fat_pct", it.bodyFatPct))
         }
         o.put("body_measurements", body)
         val food = JSONArray()
-        FoodStore.history(90).filter { it.entries.isNotEmpty() || it.forgot }.forEach { h ->
+        FoodStore.history(foodDays).filter { it.entries.isNotEmpty() || it.forgot }.forEach { h ->
             val es = JSONArray()
-            h.entries.forEach { e -> es.put(JSONObject().put("t", e.time).put("name", e.name).put("amount", e.amount).put("p", e.p).put("f", e.f).put("c", e.c).put("ml", e.drinkMl)) }
+            h.entries.forEach { e -> es.put(JSONObject().put("t", e.time).put("name", e.name).put("amount", e.amount).put("p", e.p).put("f", e.f).put("c", e.c).put("ml", e.drinkMl).put("meal", Meals.NAMES.getOrElse(FoodStore.mealOf(e)) { "" })) }
             food.put(JSONObject().put("date", h.date.toString()).put("kcal", h.totals.kcal).put("p", h.totals.p).put("f", h.totals.f).put("c", h.totals.c)
                 .put("fluid_ml", h.totals.fluidMl).put("forgot", h.forgot).put("target_kcal", h.target.kcal).put("target_p", h.target.p).put("entries", es))
         }
         o.put("nutrition", food)
+        val ext = JSONArray()
+        PhoneStore.ext.value.forEach { e ->
+            ext.put(JSONObject().put("start", e.start).put("end", e.end).put("title", e.title).put("avg_hr", e.avgHr).put("max_hr", e.maxHr)
+                .put("trimp", e.trimp).put("zone_sec", JSONArray(e.zoneSec.toList())).put("estimated", e.estimated))
+        }
+        o.put("other_app_workouts", ext)
+        val st = JSONArray()
+        PhoneStore.stress.value.forEach { st.put(JSONObject().put("t", it.time).put("score", it.score).put("hr", it.hr).put("rmssd", it.rmssd)) }
+        o.put("stress", st)
+        val pa = JSONArray()
+        PhoneStore.passive.value.forEach { pa.put(JSONObject().put("day", it.day).put("rest_hr", it.restHr).put("night_avg", it.nightAvg).put("steps", it.steps)) }
+        o.put("watch_night_pulse", pa)
         return o.toString(1)
     }
 
@@ -100,6 +113,26 @@ object Share {
         send(ctx, "PulseTrainer: $days дней", text, files)
     }
 
+    /** «Всё обо мне»: everything for a full review — workouts, sleep, activity, food, water, weight, body. */
+    fun full(ctx: Context, days: Int, withFiles: Boolean) {
+        val from = System.currentTimeMillis() - days * 86400_000L
+        val list = PhoneStore.workouts.value.filter { it.start >= from }.sortedBy { it.start }
+        val text = FullReport.text(days) + extText(from) + nightText(from) + stressText(from)
+        if (!withFiles) { sendText(ctx, "PulseTrainer: всё обо мне, $days дней", text); return }
+        val dir = shareDir(ctx)
+        val base = "pulsetrainer_all_${days}d_${stamp(System.currentTimeMillis())}"
+        val files = listOf(
+            File(dir, "${base}_report.md").apply { writeText(text) },
+            File(dir, "${base}_days.csv").apply { writeText(FullReport.dailyCsv(days)) },
+            File(dir, "${base}_food.csv").apply { writeText(FullReport.foodCsv(days)) },
+            File(dir, "${base}_exercises.csv").apply { writeText(Report.csvWorkouts(list)) },
+            File(dir, "${base}_sets.csv").apply { writeText(Report.csvSets(list)) },
+            File(dir, "${base}_heart_rate.csv").apply { writeText(Report.csvHeartRate(list)) },
+            File(dir, "${base}_full.json").apply { writeText(allJson(list, days)) },
+        )
+        send(ctx, "PulseTrainer: всё обо мне, $days дней", text, files)
+    }
+
     /** Workouts from Samsung Health and other apps (with load from their real heart rate). */
     private fun extText(from: Long): String {
         val list = PhoneStore.ext.value.filter { it.start >= from }
@@ -119,7 +152,7 @@ object Share {
         if (list.isEmpty()) return ""
         val f = SimpleDateFormat("dd.MM.yyyy", Locale("ru"))
         val sb = StringBuilder("\n## Ночной пульс (фоновый сбор на часах)\n| Дата | Пульс покоя | Средний ночью | Шаги |\n|---|---|---|---|\n")
-        list.forEach { sb.append("| ${f.format(Date(it.day))} | ${it.restHr ?: "—"} | ${it.nightAvg ?: "—"} | ${it.steps ?: "—"} |\n") }
+        list.forEach { sb.append("| ${f.format(Date(it.day))} | ${it.restHr ?: "—"} | ${it.nightAvg ?: "—"} | ${it.steps?.takeIf { s -> s > 0 } ?: "—"} |\n") }
         return sb.toString()
     }
 

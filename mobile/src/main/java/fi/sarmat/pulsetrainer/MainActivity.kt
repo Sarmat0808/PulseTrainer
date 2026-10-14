@@ -354,10 +354,12 @@ fun ShareCard() {
     var withFiles by remember { mutableStateOf(true) }
     Section {
         Text("Поделиться для ИИ-анализа", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text("Полный отчёт всех тренировок за период: нагрузка по неделям, зоны, подходы, восстановление, утренние тесты + запрос к ИИ.", color = Dim, fontSize = 15.sp)
+        Text("Только тренировки за период: нагрузка по неделям, зоны, подходы, восстановление + запрос к ИИ. Полный отчёт со сном, питанием, весом и замерами — во вкладке «Тренер».", color = Dim, fontSize = 15.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(7, 30, 90).forEach { d ->
-                Button(onClick = { Share.period(ctx, d, withFiles) }, modifier = Modifier.weight(1f)) { Text("$d дн.") }
+                Button(onClick = { Share.period(ctx, d, withFiles) }, modifier = Modifier.weight(1f)) {
+                    Text("$d дн.", fontSize = 16.sp, maxLines = 1, softWrap = false)
+                }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { withFiles = !withFiles }) {
@@ -422,7 +424,7 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
                 val laps = w.segments.flatMap { it.laps }
                 if (laps.isNotEmpty()) Expander("Круги по километрам (${laps.size})") {
                     laps.forEachIndexed { n, l ->
-                        val sec = ((l.end - l.start) / 1000).toInt()
+                        val sec = l.sec
                         val pace = if (l.distanceM > 0) (sec / (l.distanceM / 1000.0)).toInt() else null
                         VRow("Км ${n + 1}", "${fmtPace(pace)} /км", "${l.distanceM.toInt()} м · ${fmtDuration(sec)}")
                     }
@@ -481,7 +483,7 @@ private fun DetailScreen(w: Workout, onBack: () -> Unit, onSync: () -> Unit, onD
                         Text("${if (s.type.mode == Mode.ROUNDS) "Раунд" else "Подход"} ${n + 1}: " + parts.joinToString(" · "), color = Color.White, fontSize = 15.sp)
                     }
                     s.laps.forEachIndexed { n, l ->
-                        val sec = ((l.end - l.start) / 1000).toInt()
+                        val sec = l.sec
                         val pace = if (l.distanceM > 0) (sec / (l.distanceM / 1000.0)).toInt() else null
                         Text("Круг ${n + 1}: ${l.distanceM.toInt()} м · ${fmtDuration(sec)} · ${fmtPace(pace)} /км", color = Color.White, fontSize = 15.sp)
                     }

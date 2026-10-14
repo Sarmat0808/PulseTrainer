@@ -54,6 +54,7 @@ import kotlin.math.roundToInt
 private val COACH_CARDS = linkedMapOf(
     "plan" to "План на сегодня и готовность",
     "learn" to "Прогноз: форма, вес, восстановление",
+    "ai" to "Отчёт для ИИ — всё обо мне",
     "week" to "Неделя",
     "progress" to "Прогресс (вес, талия)",
     "sync" to "Синхронизация",
@@ -116,6 +117,7 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
             "sleep" -> SleepCard(today)
             "stats" -> StatsCard(days, p)
             "learn" -> LearnCard()
+            "ai" -> AiReportCard()
             "week" -> Section {
                 Text("Неделя", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 advice.week.forEach { BulletText(it) }
@@ -690,6 +692,41 @@ private fun BackupCard() {
 // ======================= Self-learning forecast =======================
 
 /** What the coach has learned from your own data, and its forecasts. */
+/** One button → everything about me for a full review by ChatGPT / Gemini / Claude. */
+@Composable
+private fun AiReportCard() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var withFiles by remember { mutableStateOf(true) }
+    Section {
+        Text("Отчёт для ИИ — всё обо мне", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Тренировки, сон, шаги, питание, вода, вес и замеры — одним отчётом с готовым запросом. Отправьте его в ChatGPT, Gemini или Claude.",
+            color = Dim, fontSize = 16.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(14, 30, 90).forEach { d ->
+                Button(onClick = { Share.full(ctx, d, withFiles) }, modifier = Modifier.weight(1f)) {
+                    Text("$d дн.", fontSize = 16.sp, maxLines = 1, softWrap = false)
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { withFiles = !withFiles }) {
+            Text(if (withFiles) "☑" else "☐", fontSize = 22.sp, color = Accent)
+            Text("Приложить файлы с цифрами (CSV/JSON)", color = Color.White, fontSize = 16.sp, modifier = Modifier.padding(start = 8.dp))
+        }
+        Expander("Что входит в отчёт") {
+            listOf(
+                "Профиль: возраст, рост, вес, цель, пульсовые зоны",
+                "Как приложение считает нормы калорий, БЖУ и воды — чтобы ИИ их проверил",
+                "Каждый день: сон, пульс покоя, шаги, тренировки, съедено, вода, вес",
+                "Вся история веса и замеров тела",
+                "Все тренировки: зоны, подходы, восстановление пульса",
+                "Питание по приёмам пищи со временем",
+                "Готовность, энергия, форма, МПК, стресс",
+            ).forEach { BulletText(it, Color.White, 15) }
+            Text("Лучше всего: 30 дней с файлами. ИИ с файлами посчитает точнее.", color = Dim, fontSize = 15.sp)
+        }
+    }
+}
+
 @Composable
 private fun LearnCard() {
     val workouts by PhoneStore.workouts.collectAsState()
