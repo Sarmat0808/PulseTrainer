@@ -273,6 +273,9 @@ object Coach {
         if (confidence <= 2) score = minOf(score, 74)
         var level = when { score >= 75 -> 0; score >= 40 -> 1; else -> 2 }
         if (checkIn != null && checkIn.feel <= 2 && level == 0) level = 1
+        // Muscles and heart still recovering (> 12 h left) — not «high» readiness for another hard session,
+        // even if sleep and pulse were great this morning. Same answer as the «Восстановление» card.
+        if (rec.hoursLeft > 12 && level == 0) { level = 1; score = minOf(score, 74) }
         if (checkIn != null && checkIn.feel == 1) level = maxOf(level, 1)
         val reasons = factors.sortedBy { it.points }.map { (if (it.points < 0) "▼ " else "• ") + it.text }
 
@@ -556,7 +559,9 @@ object Coach {
 
     fun levelText(level: Int) = when (level) { 0 -> "Высокая готовность"; 1 -> "Средняя готовность"; else -> "Нужно восстановление" }
 
-    fun levelText(a: CoachAdvice) = levelText(a.level) + if (a.confidence <= 2) " · мало данных" else ""
+    fun levelText(a: CoachAdvice) =
+        if (a.headline.startsWith("Тренировка сегодня уже")) "Отдых после тренировки"
+        else levelText(a.level) + if (a.confidence <= 2) " · мало данных" else ""
 
     @Suppress("unused")
     private fun maxOf0(a: Int, b: Int) = max(a, b)
