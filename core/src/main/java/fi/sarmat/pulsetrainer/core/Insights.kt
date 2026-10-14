@@ -48,10 +48,10 @@ object Insights {
             val short = nights.filter { it.sleepMin!! < 360 }
             val shortTxt = short.joinToString(", ") { fmtH(it.sleepMin!!) }
             when {
-                avg < 390 || short.size >= 2 -> out += Insight(2, "Сон", "Недосып мешает восстановлению",
+                avg < 390 || (short.size >= 2 && avg < 420) || short.size >= 3 -> out += Insight(2, "Сон", "Недосып мешает восстановлению",
                     "Сон за неделю в среднем ${fmtH(avg.roundToInt())}" + (if (short.isNotEmpty()) "; ночей меньше 6 ч: ${short.size} ($shortTxt)" else "") + ". Во сне растут мышцы и восстанавливается сердце — недосып съедает пользу тренировок.",
                     "Ложитесь в одно время, цель 7,5–8 ч. После ночи меньше 6 ч — только лёгкая тренировка.", 90)
-                avg < 420 -> out += Insight(1, "Сон", "Сна немного не хватает",
+                avg < 420 || short.size >= 2 -> out += Insight(1, "Сон", if (short.size >= 2) "Есть короткие ночи" else "Сна немного не хватает",
                     "В среднем ${fmtH(avg.roundToInt())} за неделю" + (if (short.isNotEmpty()) ", короткие ночи: $shortTxt" else "") + ".",
                     "Добавьте 30 минут сна — это лучший способ восстановиться для роста мышц.", 50)
                 else -> out += Insight(0, "Сон", "Сон в порядке", "В среднем ${fmtH(avg.roundToInt())} за неделю.", "Так держать.", 0)
@@ -85,6 +85,9 @@ object Insights {
                 r > 1.4 -> out += Insight(2, "Нагрузка", "Нагрузка за неделю резко выросла",
                     "Эта неделя ${wk.roundToInt()} против обычных ${norm.roundToInt()} (×${"%.1f".format(r)}). Резкий рост — главный риск травм и перетренированности.",
                     "Следующие 3–4 дня — не больше одной тяжёлой тренировки, остальное зона 2 и прогулки.", 80)
+                r > 1.2 -> out += Insight(1, "Нагрузка", "Нагрузка выше обычной",
+                    "Эта неделя ${wk.roundToInt()} против обычных ${norm.roundToInt()} (+${((r - 1) * 100).roundToInt()} %). Немного — нормально, но два таких недели подряд уже риск переутомления.",
+                    "Следующая неделя — не больше обычной: 3 зала, между ними прогулки или зона 2.", 55)
                 r < 0.6 -> out += Insight(1, "Нагрузка", "Неделя легче обычной",
                     "${wk.roundToInt()} против обычных ${norm.roundToInt()}. Для разгрузки это хорошо, но долго так — форма начнёт падать.",
                     "Если самочувствие хорошее — возвращайтесь к обычному объёму.", 20)
@@ -205,7 +208,7 @@ object Insights {
         val items = out.sortedWith(compareByDescending<Insight> { it.level }.thenByDescending { it.weight })
         val bad = items.filter { it.level == 2 }
         val headline = when {
-            bad.isNotEmpty() -> "Главное: " + bad.take(2).joinToString(" и ") { it.title.replaceFirstChar { c -> c.lowercase() } }
+            bad.isNotEmpty() -> "Главное: " + bad.first().title.replaceFirstChar { c -> c.lowercase() }
             items.any { it.level == 1 } -> "В целом хорошо, есть что улучшить"
             items.isNotEmpty() -> "Всё идёт хорошо ✓"
             else -> "Пока мало данных для разбора"
