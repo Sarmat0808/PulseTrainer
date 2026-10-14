@@ -47,6 +47,7 @@ import kotlin.math.roundToInt
 
 private val TODAY_CARDS = linkedMapOf(
     "ready" to "Готовность, самочувствие и план",
+    "myplan" to "Мой план: сон, еда, тренировки",
     "insights" to "Разбор тренера (главное)",
     "recovery" to "Время восстановления",
     "energy" to "Энергия (как Body Battery)",
@@ -64,7 +65,7 @@ private val TODAY_CARDS = linkedMapOf(
     "body" to "Состав тела",
     "workouts" to "Последние тренировки",
 )
-private val TODAY_MORE = setOf("heart", "load", "hr", "vitals", "water", "body", "workouts")
+private val TODAY_MORE = setOf("insights", "trend", "fitness", "stress", "heart", "load", "hr", "vitals", "water", "body", "workouts")
 
 private val hm = SimpleDateFormat("HH:mm", Locale("ru"))
 
@@ -237,6 +238,11 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                     watchOwn?.let { VRow("Часы (PulseTrainer)", "%,d".format(it).replace(',', ' '), "счётчик часов, без телефона") }
                     Text("Показывается Samsung Health (как на циферблате); копии из других приложений не складываются.", color = Dim, fontSize = 13.sp)
                 }
+            }
+            "myplan" -> Tile(onClick = { openTab(1) }) {
+                TileTitle("Мой план")
+                val blocks = remember(p, goal, days, workouts, tests, weights, body, ext, passive, check, foodV) { MyPlan.build() }
+                MyPlanContent(blocks.map { it.copy(lines = it.lines.take(1)) })
             }
             "insights" -> Tile(onClick = { openTab(1) }) {
                 TileTitle("Разбор тренера")

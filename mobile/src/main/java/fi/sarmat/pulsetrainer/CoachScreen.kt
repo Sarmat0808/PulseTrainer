@@ -52,6 +52,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 private val COACH_CARDS = linkedMapOf(
+    "myplan" to "Мой план: сон, еда, тренировки",
     "plan" to "План на сегодня и готовность",
     "insights" to "Разбор тренера по всем данным",
     "learn" to "Прогноз: форма, вес, восстановление",
@@ -64,7 +65,7 @@ private val COACH_CARDS = linkedMapOf(
     "nutrition" to "Питание под цель",
     "tips" to "Советы тренера",
 )
-private val COACH_MORE = setOf("progress", "sync", "sleep", "stats", "nutrition", "tips")
+private val COACH_MORE = setOf("insights", "learn", "week", "progress", "sync", "sleep", "stats", "nutrition", "tips")
 
 @Composable
 fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit) {
@@ -117,6 +118,12 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
             "sync" -> SyncCard(needAccess, days)
             "sleep" -> SleepCard(today)
             "stats" -> StatsCard(days, p)
+            "myplan" -> Section {
+                Text("Мой план", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                val blocks = remember(p, goal, days, workouts, tests, weights, body, ext, passive, check) { MyPlan.build() }
+                MyPlanContent(blocks)
+                Text("Посчитано по вашим часам, Samsung Health, дневнику еды и весу. Подробности — в «Ещё».", color = Dim, fontSize = 14.sp)
+            }
             "insights" -> Section {
                 Text("Разбор тренера", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text("По всем данным за 1–4 недели: сон, ночной пульс, нагрузка, силовые, зоны, шаги, еда, вода, вес, талия.", color = Dim, fontSize = 14.sp)
