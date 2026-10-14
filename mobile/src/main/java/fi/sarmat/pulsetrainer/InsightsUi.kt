@@ -19,6 +19,7 @@ private fun levelCol(l: Int) = when (l) { 2 -> Color(0xFFF2994A); 1 -> Warn; els
 @Composable
 fun InsightsContent(pic: Insights.Picture, show: Int = 3, compact: Boolean = false) {
     Text(pic.headline, color = levelCol(pic.level), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    if (!compact) pic.sleepPlan?.let { SleepPlanBlock(it) }
     val important = pic.items.filter { it.level > 0 }
     val good = pic.items.filter { it.level == 0 }
     important.take(show).forEach { InsightRow(it, compact) }
@@ -38,5 +39,25 @@ private fun InsightRow(i: Insights.Insight, compact: Boolean) {
         }
         if (!compact) Text(i.detail, color = Dim, fontSize = 15.sp)
         Text("→ ${i.action}", color = Accent, fontSize = 16.sp)
+    }
+}
+
+/** Personal sleep schedule: two big times and the reasons from your data. */
+@Composable
+fun SleepPlanBlock(sp: Insights.SleepPlan, full: Boolean = true) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.padding(top = 6.dp)) {
+        Text("Режим сна для вас", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Row {
+            Column(Modifier.weight(1f)) {
+                Text("Ложиться", color = Dim, fontSize = 14.sp)
+                Text(sp.bed, color = Accent, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("Вставать", color = Dim, fontSize = 14.sp)
+                Text(sp.wake, color = Accent, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Text("Сейчас у вас: ${sp.now}", color = Dim, fontSize = 15.sp)
+        if (full) Expander("Почему так и что мешает сну") { sp.lines.forEach { BulletText(it, Color.White, 15) } }
     }
 }

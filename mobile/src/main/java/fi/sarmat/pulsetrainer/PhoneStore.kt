@@ -280,7 +280,9 @@ object PhoneStore {
             fi.sarmat.pulsetrainer.core.FoodDay(
                 h.date.atStartOfDay(z).toInstant().toEpochMilli(), h.totals.kcal, h.totals.p, h.totals.fluidMl,
                 h.target.kcal, h.target.waterMl,
-                h.entries.filter { it.drinkMl == 0 }.maxOfOrNull { FoodStore.minuteOf(it.time) })
+                h.entries.filter { it.drinkMl == 0 }.maxOfOrNull { FoodStore.minuteOf(it.time) },
+                h.entries.filter { it.name.contains("Кофе", true) || it.name.contains("Энергетик", true) || it.name.contains("Чай чёрный", true) || it.name.contains("Чай зелёный", true) }
+                    .maxOfOrNull { FoodStore.minuteOf(it.time) })
         }
         val wch = try { learnEnergy().weeklyChange } catch (_: Exception) { null }
         return fi.sarmat.pulsetrainer.core.Insights.analyze(

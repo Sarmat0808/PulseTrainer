@@ -13,6 +13,8 @@ data class FoodDay(
     val targetWater: Int,
     /** Minute of the day of the last food (not drinks), null if none. */
     val lastMealMin: Int?,
+    /** Minute of the day of the last coffee / strong tea, null if none. */
+    val lastCoffeeMin: Int? = null,
 )
 
 /**
@@ -26,7 +28,10 @@ object Insights {
     /** level: 0 = good, 1 = worth attention, 2 = important. */
     data class Insight(val level: Int, val area: String, val title: String, val detail: String, val action: String, val weight: Int = 0)
 
-    data class Picture(val headline: String, val level: Int, val items: List<Insight>)
+    data class Picture(val headline: String, val level: Int, val items: List<Insight>, val sleepPlan: SleepPlan? = null)
+
+    /** Personal sleep schedule from your own nights. */
+    data class SleepPlan(val bed: String, val wake: String, val now: String, val lines: List<String>)
 
     fun analyze(
         p: Profile, goal: Goal, days: List<DailyStats>, workouts: List<Workout>, ext: List<ExtWorkout>, passive: List<PassiveDay>,
@@ -205,6 +210,8 @@ object Insights {
                 "Вариабельность пульса (ВСР) — самый ранний признак переутомления, раньше пульса и самочувствия.",
                 "3 утра подряд: сразу после пробуждения, лёжа, ремень H10 → «Утренний тест» на часах (2 мин).", 15)
 
+        val sleepPlan = sleepPlan(days, real, food, passive, now)
+
         val items = out.sortedWith(compareByDescending<Insight> { it.level }.thenByDescending { it.weight })
         val bad = items.filter { it.level == 2 }
         val headline = when {
@@ -213,7 +220,61 @@ object Insights {
             items.isNotEmpty() -> "Всё идёт хорошо ✓"
             else -> "Пока мало данных для разбора"
         }
-        return Picture(headline, bad.size.coerceAtMost(1) * 2 + if (bad.isEmpty() && items.any { it.level == 1 }) 1 else 0, items)
+        return Picture(headline, bad.size.coerceAtMost(1) * 2 + if (bad.isEmpty() && items.any { it.level == 1 }) 1 else 0, items, sleepPlan)
+    }
+
+    /**
+     * When to go to bed and get up — from YOUR nights of the last 3 weeks:
+     * - wake time = your usual wake time (a steady wake time sets the body clock best);
+     * - bed time = wake − (your best sleep length + the time you usually lie awake), aiming at 7.5–8 h of sleep;
+     * - which nights went best for you (long sleep, low pulse the next morning) and what was different;
+     * - what in your data pushes sleep later: evening coffee, late training, late food.
+     */
+    private fun sleepPlan(days: List<DailyStats>, workouts: List<Workout>, food: List<FoodDay>, passive: List<PassiveDay>, now: Long): SleepPlan? {
+        val zone = java.time.ZoneId.systemDefault()
+        fun minOfDay(t: Long) = java.time.Instant.ofEpochMilli(t).atZone(zone).let { it.hour * 60 + it.minute }
+        // Bed time as minutes after 18:00 so that 23:30 and 00:30 compare correctly.
+        fun bedKey(t: Long) = (minOfDay(t) - 18 * 60 + 1440) % 1440
+        fun hm(m: Int) = "%02d:%02d".format(((m % 1440) + 1440) % 1440 / 60, ((m % 1440) + 1440) % 1440 % 60)
+        val nights = days.filter { it.day > now - 21 * DAY && it.sleepStart != null && it.sleepEnd != null && (it.sleepMin ?: 0) > 180 }
+        if (nights.size < 5) return null
+        val beds = nights.map { bedKey(it.sleepStart!!) }.sorted()
+        val wakes = nights.map { minOfDay(it.sleepEnd!!) }.sorted()
+        val medBed = beds[beds.size / 2]; val medWake = wakes[wakes.size / 2]
+        val bedSpread = beds[(beds.size * 0.85).toInt().coerceAtMost(beds.size - 1)] - beds[(beds.size * 0.15).toInt()]
+        val wakeSpread = wakes[(wakes.size * 0.85).toInt().coerceAtMost(wakes.size - 1)] - wakes[(wakes.size * 0.15).toInt()]
+        val awake = nights.mapNotNull { it.awakeMin }.takeIf { it.isNotEmpty() }?.average()?.roundToInt() ?: 20
+        val avgSleep = nights.map { it.sleepMin!! }.average()
+
+        // Your best nights: long enough sleep and a low pulse the next morning.
+        val restMed = nights.mapNotNull { it.restHr }.sorted().let { if (it.isEmpty()) null else it[it.size / 2] }
+        val best = nights.filter { (it.sleepMin ?: 0) >= 450 && (restMed == null || (it.restHr ?: 99) <= restMed) }
+        val bestBed = best.map { bedKey(it.sleepStart!!) }.sorted().let { if (it.size >= 2) it[it.size / 2] else null }
+
+        val targetSleep = 465 // 7 h 45 min asleep: middle of the 7.5–8 h that suits strength training and the heart
+        val wake = (medWake + 7) / 15 * 15
+        val bed = ((wake - targetSleep - awake.coerceIn(10, 45)) / 15) * 15 + 1440
+        val lines = ArrayList<String>()
+        lines += "Сейчас вы обычно ложитесь в ~${hm(medBed + 18 * 60)} и встаёте в ~${hm(medWake)}, спите в среднем ${fmtH(avgSleep.roundToInt())}, просыпаетесь ночью на ~$awake мин."
+        if (bestBed != null) lines += "Лучше всего вы спали (≥7,5 ч и низкий пульс утром), когда ложились около ${hm(bestBed + 18 * 60)}."
+        if (bedSpread > 90) lines += "Время отбоя скачет на ${bedSpread / 60} ч ${bedSpread % 60} мин — организму трудно настроиться. Ровный режим ±30 мин даёт более глубокий сон."
+        if (wakeSpread > 90) lines += "Подъём скачет на ${wakeSpread / 60} ч ${wakeSpread % 60} мин. Вставайте в одно время и в выходные — это главный «якорь» биочасов."
+        // What pushes sleep later in YOUR data
+        val lateCoffee = food.filter { it.day > now - 14 * DAY }.mapNotNull { it.lastCoffeeMin }.filter { it >= 15 * 60 }
+        if (lateCoffee.isNotEmpty()) lines += "Кофе после 15:00 был ${lateCoffee.size} раз(а) (последний в ${hm(lateCoffee.max())}). Кофеин действует 6–8 ч — последний кофе до 14:00."
+        val lateFood = food.filter { it.day > now - 14 * DAY }.mapNotNull { it.lastMealMin }.filter { m ->
+            val mk = (m - 18 * 60 + 1440) % 1440; val bk = (bed - 18 * 60 + 2880) % 1440
+            m >= 17 * 60 && mk in (bk - 150)..bk }
+        if (lateFood.size >= 2) lines += "Плотная еда позже чем за 2,5 ч до сна была ${lateFood.size} раз(а) — ночной пульс от этого выше. Ужин до ${hm(bed - 150)}, после — лёгкий белок."
+        val lateWk = workouts.filter { it.end > now - 14 * DAY && minOfDay(it.end) >= 20 * 60 + 30 }
+        if (lateWk.isNotEmpty()) lines += "Тренировки, закончившиеся после 20:30: ${lateWk.size}. Интенсивное поздно вечером сдвигает засыпание — тяжёлое лучше до 19:00."
+        // Night pulse after short vs long nights (your own link)
+        val pairs = nights.mapNotNull { n -> passive.firstOrNull { it.day == n.day }?.nightAvg?.let { n.sleepMin!! to it } }
+        val shortN = pairs.filter { it.first < 390 }.map { it.second }; val longN = pairs.filter { it.first >= 450 }.map { it.second }
+        if (shortN.isNotEmpty() && longN.isNotEmpty() && shortN.average() - longN.average() >= 2)
+            lines += "У вас ночной пульс после коротких ночей ~${shortN.average().roundToInt()}, после длинных ~${longN.average().roundToInt()} — длинный сон реально снижает нагрузку на сердце."
+        lines += "За 1 ч до сна — без экрана и яркого света, в спальне прохладно (17–19 °C). Днём 20–30 мин на улице при дневном свете."
+        return SleepPlan(hm(bed), hm(wake), "${hm(medBed + 18 * 60)} → ${hm(medWake)}", lines)
     }
 
     private fun fmtH(min: Int) = "${min / 60}:${"%02d".format(min % 60)}"

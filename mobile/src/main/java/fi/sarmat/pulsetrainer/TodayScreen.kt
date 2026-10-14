@@ -171,6 +171,8 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
             }
             "sleep" -> Tile {
                 TileTitle("Сон")
+                val plan = remember(days, workouts, foodV, passive) { try { PhoneStore.insights().sleepPlan } catch (_: Exception) { null } }
+                plan?.let { Text("Ваш режим: ложиться ${it.bed} · вставать ${it.wake}", color = Accent, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                 val sc = Health.sleepScore(lastNight)
                 if (sc == null || lastNight == null) Text("Нет данных — спите с часами.", color = Dim, fontSize = 16.sp)
                 else {
