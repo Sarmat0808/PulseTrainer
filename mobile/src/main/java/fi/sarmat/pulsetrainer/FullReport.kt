@@ -65,7 +65,8 @@ object FullReport {
         learned?.let { e ->
             e.avgIntake?.let { sb.appendLine("- Средняя калорийность по дневнику (28 дней): $it ккал") }
             e.weeklyChange?.let { sb.appendLine("- Тренд веса (сглаженный): ${if (it >= 0) "+" else ""}${"%.2f".format(Locale.US, it)} кг/неделю") }
-            if (e.weightNow != null && e.weight4w != null) sb.appendLine("- Прогноз веса через 4 недели при такой еде: ${f1(e.weight4w)} кг (сейчас ${f1(e.weightNow)})")
+            val wn = e.weightNow; val w4 = e.weight4w
+            if (wn != null && w4 != null) sb.appendLine("- Прогноз веса через 4 недели при такой еде: ${f1(w4)} кг (сейчас ${f1(wn)})")
         }
         sb.appendLine("- Надбавка под цель «${goal.title}»: $adj ккал")
         sb.appendLine("- Норма сегодня: ${t.kcal} ккал, белок ${t.p} г (${f1(t.p / p.weightKg)} г/кг), жиры ${t.f} г (${f1(t.f / p.weightKg)} г/кг), углеводы ${t.c} г")
