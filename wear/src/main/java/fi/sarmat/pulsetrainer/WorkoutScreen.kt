@@ -184,20 +184,20 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
         ZoneRing(hr, s.bounds)
         val c = cells(s)
         Column(
-            Modifier.fillMaxSize().padding(start = 13.dp, end = 13.dp, top = 14.dp, bottom = 10.dp),
+            Modifier.fillMaxSize().padding(start = 13.dp, end = 13.dp, top = 8.dp, bottom = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             // 1) Time of day — on its own line at the top, big.
-            Text(clockFmt.format(Date()), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, lineHeight = 25.sp)
+            Text(clockFmt.format(Date()), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, lineHeight = 22.sp)
             // 2) Whole workout time — the biggest number after the pulse, with the sport icon.
             val paused = s.paused || s.autoPaused
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 SportIcon(s.type, 22.dp, if (paused) Colors.wait else Colors.dim)
                 Text(
                     fmtDuration(s.elapsedSec) + if (paused) " ⏸" else "",
-                    fontSize = 31.sp, fontWeight = FontWeight.Bold, color = if (paused) Colors.wait else Color.White,
-                    maxLines = 1, lineHeight = 32.sp
+                    fontSize = 28.sp, fontWeight = FontWeight.Bold, color = if (paused) Colors.wait else Color.White,
+                    maxLines = 1, lineHeight = 28.sp
                 )
             }
             // 2b) Several exercises in one workout: the current exercise and its own time.
@@ -212,9 +212,10 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
                     // long press on the pulse = switch exercise
                     modifier = Modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { Haptics.tick(); onSwitch() }) }
                 ) {
-                    Text(hr?.toString() ?: "--", fontSize = 56.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 56.sp, maxLines = 1)
+                    Text(hr?.toString() ?: "--", fontSize = 52.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 50.sp, maxLines = 1)
+                    // Zone (if any) and where the pulse comes from — no extra heart symbol.
                     Text(
-                        (if (zone > 0) "Z$zone" else "♥") + " · " + (if (hr == null) "нет" else if (s.hrFromStrap) "H10" else "часы"),
+                        listOfNotNull(if (zone > 0) "Z$zone" else null, if (hr == null) "нет пульса" else if (s.hrFromStrap) "H10" else "часы").joinToString(" · "),
                         fontSize = 15.sp, fontWeight = FontWeight.Bold, lineHeight = 16.sp, maxLines = 1,
                         color = if (hr != null && !s.hrFromStrap) Colors.wait else zc
                     )
@@ -225,9 +226,8 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
             when {
                 s.type.mode == Mode.ROUNDS -> RoundsBlock(s)
                 s.type.treadmill -> TreadmillBlock(s)
-                else -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 2.dp)) {
-                    c.drop(2).take(2).forEach { Metric(it.value, it.label) }
-                }
+                // The bottom of a round screen is narrow: one number, centred.
+                else -> c.getOrNull(2)?.let { Box(Modifier.padding(top = 2.dp)) { Metric(it.value, it.label, wide = true) } }
             }
             // Bottom: orange plate = time to finish; green plate = a new tip (swipe up to read);
             // strength shows nothing else here, cardio keeps one short zone hint.
@@ -235,10 +235,10 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
             else if (s.coachUnseen) CoachBadge("▲ Совет", Colors.ready, onCoach)
             else if (s.type.mode != Mode.SETS) s.assist?.takeIf { !it.startsWith("Тренер") }?.let { line ->
                 Text(
-                    line, fontSize = 15.sp, maxLines = 1, textAlign = TextAlign.Center, lineHeight = 17.sp,
+                    line, fontSize = 14.sp, maxLines = 1, textAlign = TextAlign.Center, lineHeight = 15.sp,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     color = when (s.assistLevel) { 1 -> Colors.ready; 2 -> Colors.wait; else -> Colors.dim },
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 1.dp)
+                    modifier = Modifier.padding(horizontal = 44.dp, vertical = 0.dp)
                         .pointerInput(Unit) { detectTapGestures(onTap = { onCoach() }) }
                 )
             }
@@ -329,8 +329,8 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
         t.mode == Mode.SETS -> listOf(
             kcal,
             Cell("${s.trimp}", "нагрузка"),
+            Cell("${(s.segZoneSec[4] + s.segZoneSec[5]) / 60}", "мин в Z4–5"),
             Cell("${s.avgHr}", "ср. пульс"),
-            Cell("${(s.segZoneSec[4] + s.segZoneSec[5]) / 60}", "мин Z4–5"),
         )
         // Treadmill: distance and calories beside the pulse; speed buttons go underneath.
         t.treadmill -> listOf(km, kcal, Cell("${s.z23Min}", "мин Z2–3"), Cell("${s.avgHr}", "ср. пульс"))
@@ -340,8 +340,8 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
         t == WorkoutType.BIKE_OUTDOOR -> listOf(km, Cell("%.1f".format(s.speedKmh), "км/ч"), Cell("%.1f".format(s.avgSpeedKmh), "ср. км/ч"), up)
         t == WorkoutType.RUN -> listOf(km, pace, avgPace, cad)
         t == WorkoutType.HIKING || t == WorkoutType.SKIING -> listOf(km, pace, up, Cell("${s.descentM}", "м ↓"))
-        t.gps -> listOf(km, pace, cad, up)
-        else -> listOf(Cell("${s.z23Min}", "мин Z2–3"), kcal, Cell("${s.avgHr}", "ср. пульс"), Cell("${s.trimp}", "нагрузка"))
+        t.gps -> listOf(km, pace, kcal, up)
+        else -> listOf(Cell("${s.z23Min}", "мин Z2–3"), kcal, Cell("${s.trimp}", "нагрузка"), Cell("${s.avgHr}", "ср. пульс"))
     }
 }
 
@@ -370,19 +370,19 @@ private fun RoundsBlock(s: WorkoutEngine.Ui) {
 private fun TreadmillBlock(s: WorkoutEngine.Ui) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.padding(top = 2.dp)) {
-        RoundBtn("−", size = 38.dp, textSize = 22) { WorkoutEngine.adjustTreadSpeed(-0.5) }
+        RoundBtn("−", size = 34.dp, textSize = 20) { WorkoutEngine.adjustTreadSpeed(-0.5) }
         Metric("%.1f".format(s.treadSpeed), "км/ч")
-        RoundBtn("+", size = 38.dp, textSize = 22) { WorkoutEngine.adjustTreadSpeed(0.5) }
+        RoundBtn("+", size = 34.dp, textSize = 20) { WorkoutEngine.adjustTreadSpeed(0.5) }
     }
 }
 
 /** Bottom-row number: big value, short label under it. */
 @Composable
-private fun Metric(value: String, unit: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(78.dp)) {
-        Text(value, fontSize = if (value.length > 5) 23.sp else 28.sp, fontWeight = FontWeight.Bold, color = Color.White,
-            lineHeight = 29.sp, maxLines = 1)
-        Text(unit, fontSize = 14.sp, color = Colors.dim, lineHeight = 15.sp, maxLines = 1)
+private fun Metric(value: String, unit: String, wide: Boolean = false) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(if (wide) 120.dp else 78.dp)) {
+        Text(value, fontSize = if (value.length > 5) 22.sp else 26.sp, fontWeight = FontWeight.Bold, color = Color.White,
+            lineHeight = 26.sp, maxLines = 1)
+        Text(unit, fontSize = 13.sp, color = Colors.dim, lineHeight = 13.sp, maxLines = 1)
     }
 }
 
