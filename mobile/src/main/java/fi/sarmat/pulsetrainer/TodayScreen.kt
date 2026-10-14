@@ -51,6 +51,7 @@ private val TODAY_CARDS = linkedMapOf(
     "energy" to "Энергия (как Body Battery)",
     "sleep" to "Сон",
     "activity" to "Активность и шаги",
+    "balance" to "Калории: съел и потратил",
     "trend" to "Куда я двигаюсь (прогресс)",
     "fitness" to "Физическая форма (VO₂max)",
     "heart" to "Укрепление сердца (неделя)",
@@ -233,6 +234,11 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                     watchOwn?.let { VRow("Часы (PulseTrainer)", "%,d".format(it).replace(',', ' '), "счётчик часов, без телефона") }
                     Text("Показывается Samsung Health (как на циферблате); копии из других приложений не складываются.", color = Dim, fontSize = 13.sp)
                 }
+            }
+            "balance" -> Tile {
+                TileTitle("Калории сегодня")
+                val bal = remember(p, days, workouts, foodV, minuteTick) { Balance.today(p, days, workouts) }
+                BalanceContent(bal, remember(foodV, workouts, ext, minuteTick) { FoodStore.targets(LocalDate.now()).kcal })
             }
             "trend" -> Tile {
                 TileTitle("Куда я двигаюсь")
