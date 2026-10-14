@@ -104,6 +104,11 @@ object FullReport {
                     (it.change?.let { c -> ", изменение ${if (c >= 0) "+" else ""}${f1(c)}" } ?: ""))
             }
         } catch (_: Exception) {}
+        try {
+            val pic = PhoneStore.insights()
+            sb.appendLine("- Разбор тренера приложения: ${pic.headline}")
+            pic.items.forEach { sb.appendLine("  - [${listOf("хорошо", "внимание", "важно")[it.level]}] ${it.area}: ${it.title}. ${it.detail} → ${it.action}") }
+        } catch (_: Exception) {}
         PhoneStore.todayCheckIn()?.let { sb.appendLine("- Самочувствие сегодня ${it.feel}/5, боль в мышцах ${it.soreness}/2") }
         sb.appendLine()
     }

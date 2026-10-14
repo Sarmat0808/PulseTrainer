@@ -176,6 +176,16 @@ object Coach {
             }
         } else missing += if (restToday == null) "ночной пульс покоя (носите часы ночью)" else "норма пульса покоя (ещё ${4 - restBase.size} ноч.)"
 
+        // ---- 2b. Average pulse through the night vs your usual (catches a hard week, late food, start of a cold) ----
+        val nights = passive.filter { it.nightAvg != null && it.day <= todayKey }.sortedBy { it.day }
+        val lastNight = nights.lastOrNull()?.takeIf { it.day >= todayKey - DAY }
+        if (lastNight != null && nights.size >= 5) {
+            val base = nights.dropLast(1).takeLast(10).map { it.nightAvg!! }.sorted().let { it[it.size / 2] }
+            val d = lastNight.nightAvg!! - base
+            if (d >= 8) factors += Factor("Ночью пульс в среднем ${lastNight.nightAvg} — выше вашей нормы (~$base) на $d", -15, "rest")
+            else if (d >= 5) factors += Factor("Ночной пульс немного выше нормы (${lastNight.nightAvg} против ~$base)", -8, "rest")
+        }
+
         // ---- 3. HRV: morning test (strap) or watch HRV ----
         val test = tests.lastOrNull()?.takeIf { now - it.time < 16 * 3600_000L }
         if (test != null && test.status >= 0) {

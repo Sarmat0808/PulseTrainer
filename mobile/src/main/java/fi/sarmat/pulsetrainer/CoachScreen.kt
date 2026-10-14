@@ -53,6 +53,7 @@ import kotlin.math.roundToInt
 
 private val COACH_CARDS = linkedMapOf(
     "plan" to "План на сегодня и готовность",
+    "insights" to "Разбор тренера по всем данным",
     "learn" to "Прогноз: форма, вес, восстановление",
     "ai" to "Отчёт для ИИ — всё обо мне",
     "week" to "Неделя",
@@ -116,6 +117,12 @@ fun CoachScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit)
             "sync" -> SyncCard(needAccess, days)
             "sleep" -> SleepCard(today)
             "stats" -> StatsCard(days, p)
+            "insights" -> Section {
+                Text("Разбор тренера", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("По всем данным за 1–4 недели: сон, ночной пульс, нагрузка, силовые, зоны, шаги, еда, вода, вес, талия.", color = Dim, fontSize = 14.sp)
+                val pic = remember(p, goal, days, workouts, tests, weights, body, ext, passive) { PhoneStore.insights() }
+                InsightsContent(pic, show = 4)
+            }
             "learn" -> LearnCard()
             "ai" -> AiReportCard()
             "week" -> Section {

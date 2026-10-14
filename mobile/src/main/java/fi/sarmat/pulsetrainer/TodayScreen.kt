@@ -47,6 +47,7 @@ import kotlin.math.roundToInt
 
 private val TODAY_CARDS = linkedMapOf(
     "ready" to "Готовность, самочувствие и план",
+    "insights" to "Разбор тренера (главное)",
     "recovery" to "Время восстановления",
     "energy" to "Энергия (как Body Battery)",
     "sleep" to "Сон",
@@ -234,6 +235,12 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                     watchOwn?.let { VRow("Часы (PulseTrainer)", "%,d".format(it).replace(',', ' '), "счётчик часов, без телефона") }
                     Text("Показывается Samsung Health (как на циферблате); копии из других приложений не складываются.", color = Dim, fontSize = 13.sp)
                 }
+            }
+            "insights" -> Tile(onClick = { openTab(1) }) {
+                TileTitle("Разбор тренера")
+                val pic = remember(p, goal, days, workouts, tests, weights, body, ext, passive, foodV) { PhoneStore.insights() }
+                InsightsContent(pic, show = 2, compact = true)
+                Text("Подробно — вкладка «Тренер» →", color = Accent, fontSize = 15.sp)
             }
             "balance" -> Tile {
                 TileTitle("Калории сегодня")

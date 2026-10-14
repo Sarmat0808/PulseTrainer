@@ -273,6 +273,21 @@ object PhoneStore {
 
     fun learnForm() = fi.sarmat.pulsetrainer.core.Learn.form(dailyLoads())
 
+    /** The whole picture from all data of the last weeks (see core Insights). */
+    fun insights(): fi.sarmat.pulsetrainer.core.Insights.Picture {
+        val z = java.time.ZoneId.systemDefault()
+        val food = FoodStore.history(28).filter { !it.forgot && it.entries.any { e -> e.drinkMl == 0 } }.map { h ->
+            fi.sarmat.pulsetrainer.core.FoodDay(
+                h.date.atStartOfDay(z).toInstant().toEpochMilli(), h.totals.kcal, h.totals.p, h.totals.fluidMl,
+                h.target.kcal, h.target.waterMl,
+                h.entries.filter { it.drinkMl == 0 }.maxOfOrNull { FoodStore.minuteOf(it.time) })
+        }
+        val wch = try { learnEnergy().weeklyChange } catch (_: Exception) { null }
+        return fi.sarmat.pulsetrainer.core.Insights.analyze(
+            profile.value ?: fi.sarmat.pulsetrainer.core.Profile(), goal.value, days.value, workouts.value, ext.value, passive.value,
+            food, weights.value, body.value, hrv.value, wch)
+    }
+
     fun learnEnergy(): fi.sarmat.pulsetrainer.core.Learn.Energy {
         val z = java.time.ZoneId.systemDefault()
         val intake = FoodStore.history(28).filter { !it.forgot && it.entries.isNotEmpty() && it.date != java.time.LocalDate.now() }
