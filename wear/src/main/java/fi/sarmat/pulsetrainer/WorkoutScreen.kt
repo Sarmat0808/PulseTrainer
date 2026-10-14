@@ -189,15 +189,15 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
             verticalArrangement = Arrangement.Center
         ) {
             // 1) Time of day — on its own line at the top, big.
-            Text(clockFmt.format(Date()), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, lineHeight = 22.sp)
+            Text(clockFmt.format(Date()), fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, lineHeight = 21.sp)
             // 2) Whole workout time — the biggest number after the pulse, with the sport icon.
             val paused = s.paused || s.autoPaused
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 SportIcon(s.type, 22.dp, if (paused) Colors.wait else Colors.dim)
                 Text(
                     fmtDuration(s.elapsedSec) + if (paused) " ⏸" else "",
-                    fontSize = 28.sp, fontWeight = FontWeight.Bold, color = if (paused) Colors.wait else Color.White,
-                    maxLines = 1, lineHeight = 28.sp
+                    fontSize = 26.sp, fontWeight = FontWeight.Bold, color = if (paused) Colors.wait else Color.White,
+                    maxLines = 1, lineHeight = 26.sp
                 )
             }
             // 2b) Several exercises in one workout: the current exercise and its own time.
@@ -212,7 +212,7 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
                     // long press on the pulse = switch exercise
                     modifier = Modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { Haptics.tick(); onSwitch() }) }
                 ) {
-                    Text(hr?.toString() ?: "--", fontSize = 52.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 50.sp, maxLines = 1)
+                    Text(hr?.toString() ?: "--", fontSize = 46.sp, fontWeight = FontWeight.Bold, color = zc, lineHeight = 44.sp, maxLines = 1)
                     // Zone (if any) and where the pulse comes from — no extra heart symbol.
                     Text(
                         listOfNotNull(if (zone > 0) "Z$zone" else null, if (hr == null) "нет пульса" else if (s.hrFromStrap) "H10" else "часы").joinToString(" · "),
@@ -226,8 +226,10 @@ private fun MainPage(s: WorkoutEngine.Ui, hr: Int?, onSwitch: () -> Unit, onCoac
             when {
                 s.type.mode == Mode.ROUNDS -> RoundsBlock(s)
                 s.type.treadmill -> TreadmillBlock(s)
-                // The bottom of a round screen is narrow: one number, centred.
-                else -> c.getOrNull(2)?.let { Box(Modifier.padding(top = 2.dp)) { Metric(it.value, it.label, wide = true) } }
+                // Two numbers close together: the bottom of a round screen is narrow.
+                else -> Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(top = 2.dp)) {
+                    c.drop(2).take(2).forEach { Metric(it.value, it.label) }
+                }
             }
             // Bottom: orange plate = time to finish; green plate = a new tip (swipe up to read);
             // strength shows nothing else here, cardio keeps one short zone hint.
@@ -329,8 +331,8 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
         t.mode == Mode.SETS -> listOf(
             kcal,
             Cell("${s.trimp}", "нагрузка"),
-            Cell("${(s.segZoneSec[4] + s.segZoneSec[5]) / 60}", "мин в Z4–5"),
             Cell("${s.avgHr}", "ср. пульс"),
+            Cell("${(s.segZoneSec[4] + s.segZoneSec[5]) / 60}", "мин Z4–5"),
         )
         // Treadmill: distance and calories beside the pulse; speed buttons go underneath.
         t.treadmill -> listOf(km, kcal, Cell("${s.z23Min}", "мин Z2–3"), Cell("${s.avgHr}", "ср. пульс"))
@@ -340,8 +342,8 @@ private fun cells(s: WorkoutEngine.Ui): List<Cell> {
         t == WorkoutType.BIKE_OUTDOOR -> listOf(km, Cell("%.1f".format(s.speedKmh), "км/ч"), Cell("%.1f".format(s.avgSpeedKmh), "ср. км/ч"), up)
         t == WorkoutType.RUN -> listOf(km, pace, avgPace, cad)
         t == WorkoutType.HIKING || t == WorkoutType.SKIING -> listOf(km, pace, up, Cell("${s.descentM}", "м ↓"))
-        t.gps -> listOf(km, pace, kcal, up)
-        else -> listOf(Cell("${s.z23Min}", "мин Z2–3"), kcal, Cell("${s.trimp}", "нагрузка"), Cell("${s.avgHr}", "ср. пульс"))
+        t.gps -> listOf(km, pace, kcal, Cell("${s.avgHr}", "ср. пульс"))
+        else -> listOf(Cell("${s.z23Min}", "мин Z2–3"), kcal, Cell("${s.avgHr}", "ср. пульс"), Cell("${s.trimp}", "нагрузка"))
     }
 }
 
@@ -379,10 +381,10 @@ private fun TreadmillBlock(s: WorkoutEngine.Ui) {
 /** Bottom-row number: big value, short label under it. */
 @Composable
 private fun Metric(value: String, unit: String, wide: Boolean = false) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(if (wide) 120.dp else 78.dp)) {
-        Text(value, fontSize = if (value.length > 5) 22.sp else 26.sp, fontWeight = FontWeight.Bold, color = Color.White,
-            lineHeight = 26.sp, maxLines = 1)
-        Text(unit, fontSize = 13.sp, color = Colors.dim, lineHeight = 13.sp, maxLines = 1)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(if (wide) 120.dp else 70.dp)) {
+        Text(value, fontSize = if (value.length > 5) 20.sp else 23.sp, fontWeight = FontWeight.Bold, color = Color.White,
+            lineHeight = 23.sp, maxLines = 1)
+        Text(unit, fontSize = 12.sp, color = Colors.dim, lineHeight = 12.sp, maxLines = 1)
     }
 }
 
@@ -391,9 +393,9 @@ private fun Metric(value: String, unit: String, wide: Boolean = false) {
 private fun SideMetric(c: Cell?, modifier: Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         if (c == null) return@Column
-        val size = when { c.value.length >= 5 -> 18; c.value.length == 4 -> 21; else -> 25 }
+        val size = when { c.value.length >= 5 -> 18; c.value.length == 4 -> 21; else -> 24 }
         Text(c.value, fontSize = size.sp, fontWeight = FontWeight.Bold, color = Color.White, lineHeight = (size + 1).sp, maxLines = 1)
-        Text(c.label, fontSize = 13.sp, color = Colors.dim, lineHeight = 14.sp, maxLines = 1, textAlign = TextAlign.Center)
+        Text(c.label, fontSize = 12.sp, color = Colors.dim, lineHeight = 13.sp, maxLines = 1, textAlign = TextAlign.Center)
     }
 }
 
