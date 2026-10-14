@@ -121,7 +121,7 @@ fun NutritionScreen() {
         val renderCard: @Composable (String) -> Unit = { id ->
                 when (id) {
                     "status" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatusBox(reached, forgot, target, total)
+                        StatusBox(reached, forgot, target, total, date == LocalDate.now())
                     }
                     "macros" -> Section {
                         MacroBar("Калории", total.kcal, target.kcal.toDouble(), "ккал", Color(0xFFF2994A))
@@ -665,10 +665,17 @@ private fun NumIn(label: String, value: String, modifier: Modifier, onChange: (S
 
 
 @Composable
-private fun StatusBox(reached: Boolean, forgot: Boolean, target: fi.sarmat.pulsetrainer.core.Targets, total: DayTotals) {
+private fun StatusBox(reached: Boolean, forgot: Boolean, target: fi.sarmat.pulsetrainer.core.Targets, total: DayTotals, today: Boolean = true) {
+    val hour = java.time.LocalTime.now().hour
+    val proteinOk = total.p >= target.p * 0.95
     val (bg, title, sub) = when {
         reached -> Triple(Good, "✓ ДНЕВНАЯ НОРМА НАБРАНА", "Белок и калории на месте — отлично!")
         forgot -> Triple(Color(0xFF4A4F57), "ДЕНЬ БЕЗ ЗАПИСЕЙ", "Отмечено «забыл внести» — в статистику не идёт")
+        // Late evening: never push to «eat the rest» before sleep — a small shortfall is fine.
+        today && hour >= 21 && proteinOk -> Triple(Color(0xFF2E5E8C), "ДЕНЬ ЗАКРЫТ ✓",
+            "Белок набран. Добирать калории на ночь не нужно — ${(target.kcal - total.kcal).coerceAtLeast(0.0).roundToInt()} ккал недобора не страшно")
+        today && hour >= 21 -> Triple(Color(0xFF2E5E8C), "ВЕЧЕР: ТОЛЬКО БЕЛОК",
+            "Если голодны — лёгкий белок: творог, кефир, ещё ${(target.p - total.p).coerceAtLeast(0.0).roundToInt()} г. Калории на ночь не добирайте")
         else -> Triple(
             Danger, "ОСТАЛОСЬ: ${(target.kcal - total.kcal).coerceAtLeast(0.0).roundToInt()} ккал",
             "Белок: ещё ${(target.p - total.p).coerceAtLeast(0.0).roundToInt()} г из ${target.p}"

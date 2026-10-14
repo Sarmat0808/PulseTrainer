@@ -56,7 +56,7 @@ object FullReport {
         val bmr = Physiology.bmr(p).roundToInt()
         val learned = try { PhoneStore.learnEnergy() } catch (_: Exception) { null }
         val t = FoodStore.targets(LocalDate.now())
-        val adj = when (goal) { Goal.HYBRID -> "+250"; Goal.MASS -> "+350"; Goal.FAT_LOSS -> "−450"; else -> "0" }
+        val adj = when (goal) { Goal.HYBRID -> "+150"; Goal.MASS -> "+350"; Goal.FAT_LOSS -> "−450"; else -> "0" }
         sb.appendLine("## Как приложение считает мои нормы (проверь)")
         sb.appendLine("- Базовый обмен (Миффлин — Сан Жеор): $bmr ккал/день")
         if (learned?.tdee != null) sb.appendLine("- Реальный расход по дневнику питания и весу (адаптивный, как MacroFactor): ${learned.tdee} ккал/день (по ${learned.daysUsed} дням)")

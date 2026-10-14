@@ -11,8 +11,8 @@ android {
         applicationId = "fi.sarmat.pulsetrainer"
         minSdk = 28
         targetSdk = 34
-        versionCode = 64
-        versionName = "6.4"
+        versionCode = 65
+        versionName = "6.5"
     }
 
     signingConfigs {

@@ -137,7 +137,8 @@ object Nutrition {
     fun targets(p: Profile, goal: Goal, trainedToday: Boolean, workoutKcal: Double = 0.0, realTdee: Int? = null, trainingMin: Int = 0): Targets {
         val tdee = realTdee?.let { it + if (trainedToday) 150.0 else -100.0 } ?: (Physiology.bmr(p) * (if (trainedToday) 1.6 else 1.45))
         val adj = when (goal) {
-            Goal.HYBRID -> 250.0
+            // Lean gain after 40: a small surplus — a bigger one goes mostly to fat.
+            Goal.HYBRID -> 150.0
             Goal.MASS -> 350.0
             Goal.FAT_LOSS -> -450.0
             else -> 0.0
