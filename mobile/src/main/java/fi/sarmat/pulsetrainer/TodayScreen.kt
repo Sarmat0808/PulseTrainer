@@ -85,6 +85,7 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
     val hrRecent by PhoneStore.hrRecent.collectAsState()
     var minuteTick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val foodV by FoodStore.version.collectAsState()
+    val refreshing by PhoneStore.refreshing.collectAsState()
     val p = profile ?: Profile()
     val watchHr by PhoneStore.watchHr.collectAsState()
     val energy = remember(p, days, workouts, tests, check, passive, hrRecent, watchHr, minuteTick) { PhoneStore.energy() }
@@ -121,6 +122,20 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
         when (id) {
             "ready" -> Tile {
                 val c = levelColor(advice.level)
+                // While fresh data is loading, don't flash an old score (54 → 72): show «обновляю».
+                if (refreshing && PhoneStore.stale()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Ring(0f, Dim, "…", Modifier.size(90.dp))
+                        Column(Modifier.padding(start = 14.dp)) {
+                            Text("Обновляю данные", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                            Text("сон и пульс из Samsung Health…", color = Dim, fontSize = 15.sp)
+                        }
+                    }
+                    return@Tile
+                }
+                if (today?.sleepMin == null && java.time.LocalTime.now().hour < 14)
+                    Text("Сон этой ночи ещё не пришёл из Samsung Health — оценка уточнится. Потяните вниз через пару минут.",
+                        color = Warn, fontSize = 15.sp)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { openTab(1) }) {
                     Ring(advice.score / 100f, c, "${advice.score}", Modifier.size(90.dp))
                     Column(Modifier.padding(start = 14.dp).weight(1f)) {
@@ -158,7 +173,7 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                     Ring(energy.now / 100f, c, "${energy.now}", Modifier.size(84.dp))
                     Column(Modifier.padding(start = 14.dp).weight(1f)) {
                         Text(energy.label, color = c, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Утром было ${energy.morning}", color = Dim, fontSize = 15.sp)
+                        Text("При пробуждении: ${energy.morning}", color = Dim, fontSize = 15.sp)
                     }
                 }
                 EnergyChart(energy.series)

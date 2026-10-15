@@ -419,7 +419,18 @@ object PhoneStore {
         } catch (_: Exception) {}
     }
 
+    /** true while Health Connect is being read (the first seconds after opening the app). */
+    val refreshing = MutableStateFlow(false)
+
+    /** Data from Samsung Health is older than 30 min — numbers shown before the refresh would be stale. */
+    fun stale(): Boolean = System.currentTimeMillis() - lastHcImport > 30 * 60_000L
+
     suspend fun refreshDays(ctx: Context) {
+        refreshing.value = true
+        try { refreshDaysImpl(ctx) } finally { refreshing.value = false }
+    }
+
+    private suspend fun refreshDaysImpl(ctx: Context) {
         val snap = try { HealthData.load(ctx, profile.value ?: fi.sarmat.pulsetrainer.core.Profile()) } catch (_: Exception) { null }
         // A background read can come back empty (Health Connect locked / no permission in background):
         // never let that wipe what we already have.
