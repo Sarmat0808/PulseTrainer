@@ -339,7 +339,11 @@ private fun TotalCell(v: String, label: String, modifier: Modifier) {
 }
 
 private fun n(v: Double) = v.roundToInt().toString()
-private fun amountText(e: FoodEntry) = if (e.drinkMl > 0) "${e.drinkMl} мл" else "${e.amount.roundToInt()} г"
+private fun amountText(e: FoodEntry) = when {
+    e.drinkMl > 0 -> "${e.drinkMl} мл"
+    e.amount <= 0 -> "порция"
+    else -> "${e.amount.roundToInt()} г"
+}
 
 @Composable
 private fun Tip(text: String) {
@@ -787,6 +791,21 @@ private fun MealsCard(date: LocalDate, foods: List<Food>, entries: List<FoodEntr
 @Composable
 private fun EntryEditDialog(date: LocalDate, e: FoodEntry, onClose: () -> Unit) {
     val ctx = LocalContext.current
+    // Logged in Samsung Health: changed there (an app may not edit another app's data); here it can only be hidden.
+    if (FoodStore.isExternal(e)) {
+        AlertDialog(
+            onDismissRequest = onClose,
+            title = { Text(e.name) },
+            text = {
+                Text("${amountText(e)} · Б ${n(e.p)} · Ж ${n(e.f)} · У ${n(e.c)} · ${n(e.kcal)} ккал\n\n" +
+                    "Внесено в Samsung Health — изменить можно там, сюда придёт само. Здесь можно скрыть, если это дубль.",
+                    fontSize = 15.sp)
+            },
+            confirmButton = { TextButton(onClick = onClose) { Text("Закрыть") } },
+            dismissButton = { TextButton(onClick = { FoodStore.remove(date, e); onClose() }) { Text("Скрыть", color = Danger) } },
+        )
+        return
+    }
     var amount by remember { mutableStateOf(e.amount.roundToInt().toString()) }
     var meal by remember { mutableStateOf(FoodStore.mealOf(e)) }
     var minute by remember { mutableStateOf(FoodStore.minuteOf(e.time)) }

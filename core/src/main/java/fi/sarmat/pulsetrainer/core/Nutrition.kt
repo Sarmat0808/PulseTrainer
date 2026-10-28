@@ -113,7 +113,8 @@ object Meals {
     }
 }
 
-data class Targets(val kcal: Int, val p: Int, val f: Int, val c: Int, val waterMl: Int)
+/** [maintain] = calories that keep the weight today (the same energy use the norm is built on, before the goal adjustment). */
+data class Targets(val kcal: Int, val p: Int, val f: Int, val c: Int, val waterMl: Int, val maintain: Int = kcal)
 
 data class DayTotals(val kcal: Double, val p: Double, val f: Double, val c: Double, val fluidMl: Int) {
     companion object {
@@ -133,9 +134,13 @@ data class DayTotals(val kcal: Double, val p: Double, val f: Double, val c: Doub
  */
 object Nutrition {
 
-    /** [realTdee] = your real average energy use learned from food log + weight (Learn.energy), if known. */
-    fun targets(p: Profile, goal: Goal, trainedToday: Boolean, workoutKcal: Double = 0.0, realTdee: Int? = null, trainingMin: Int = 0): Targets {
-        val tdee = realTdee?.let { it + if (trainedToday) 150.0 else -100.0 } ?: (Physiology.bmr(p) * (if (trainedToday) 1.6 else 1.45))
+    /**
+     * [realTdee] = your real average energy use learned from food log + weight (Learn.energy), if known.
+     * [bmr] = basal metabolic rate measured by Samsung Health, if there is one (else the formula).
+     */
+    fun targets(p: Profile, goal: Goal, trainedToday: Boolean, workoutKcal: Double = 0.0, realTdee: Int? = null, trainingMin: Int = 0,
+                bmr: Double? = null): Targets {
+        val tdee = realTdee?.let { it + if (trainedToday) 150.0 else -100.0 } ?: (Physiology.bmr(p, bmr) * (if (trainedToday) 1.6 else 1.45))
         val adj = when (goal) {
             // Lean gain after 40: a small surplus — a bigger one goes mostly to fat.
             Goal.HYBRID -> 150.0
@@ -148,7 +153,7 @@ object Nutrition {
         val fat = (p.weightKg * 0.9).roundToInt()
         val carbs = max(100, ((kcal - protein * 4 - fat * 9) / 4.0).roundToInt())
         val water = waterNorm(p, workoutKcal.takeIf { it > 0 } ?: if (trainedToday) maxOf(trainingMin, 45) * 7.0 else 0.0)
-        return Targets(kcal, protein, fat, carbs, water)
+        return Targets(kcal, protein, fat, carbs, water, tdee.roundToInt())
     }
 
     /**
@@ -164,6 +169,26 @@ object Nutrition {
         val total = maxOf(p.weightKg * perKg, if (p.male) 2500.0 else 2000.0)
         val drinks = total * 0.8 + workoutKcal.coerceIn(0.0, 2000.0)
         return ((drinks / 50).roundToInt() * 50).coerceIn(1500, 5500)
+    }
+
+    /** [fromTotal] = «burned» is Samsung Health's own total, not the formula. */
+    data class Burn(val rest: Int, val active: Int, val burned: Int, val endOfDay: Int, val fromTotal: Boolean)
+
+    /**
+     * Calories burned today so far and by the end of the day.
+     * - So far: Samsung Health's «всего сожжено» ([totalSoFar]) when it shares it — the same number as in
+     *   Samsung; otherwise basal metabolism for the hours passed + [activeSoFar].
+     * - End of the day: today's energy use from the norm ([maintain]: your real use learned from food and
+     *   weight, or the formula), never less than what is already burned plus the rest of the day at rest.
+     */
+    fun burnToday(bmr: Double, nowMin: Int, totalSoFar: Double?, activeSoFar: Double, maintain: Int): Burn {
+        val restFormula = bmr * nowMin / 1440.0
+        // Samsung writes the day's total in pieces; a total below a good part of basal metabolism is incomplete.
+        val total = totalSoFar?.takeIf { it >= activeSoFar && it >= restFormula * 0.6 }
+        val burned = total ?: (restFormula + activeSoFar)
+        val rest = burned - activeSoFar
+        val end = max(maintain.toDouble(), burned + bmr * (1440 - nowMin).coerceAtLeast(0) / 1440.0)
+        return Burn(rest.roundToInt(), activeSoFar.roundToInt(), burned.roundToInt(), end.roundToInt(), total != null)
     }
 
     /** Daily norm reached = energy and protein at least 95 % of target. */

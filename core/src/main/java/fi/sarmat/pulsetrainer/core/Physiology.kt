@@ -64,6 +64,14 @@ object Physiology {
     fun bmr(p: Profile): Double =
         10 * p.weightKg + 6.25 * p.heightCm - 5 * p.age + if (p.male) 5 else -161
 
+    /**
+     * Basal metabolic rate for the day's calories: the one Samsung Health measured (body composition
+     * on the watch) when there is one, so the app and Samsung count calories at rest the same way;
+     * otherwise the formula.
+     */
+    fun bmr(p: Profile, measured: Double?): Double =
+        measured?.takeIf { it in 1000.0..3500.0 } ?: bmr(p)
+
     /** Total energy expenditure, kcal per minute, at this heart rate (Keytel 2005). */
     fun kcalPerMin(hr: Int, p: Profile): Double {
         val k = if (p.male)
@@ -237,6 +245,22 @@ fun fmtDuration(sec: Int): String {
     val m = (sec % 3600) / 60
     val s = sec % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+}
+
+/** Minutes as hours and minutes, like Samsung Health: «7 ч 4 мин», «2 ч», «45 мин». */
+fun fmtHm(min: Int): String {
+    val m = min.coerceAtLeast(0)
+    return when {
+        m < 60 -> "$m мин"
+        m % 60 == 0 -> "${m / 60} ч"
+        else -> "${m / 60} ч ${m % 60} мин"
+    }
+}
+
+/** Short form for tiles and complications: «7ч 4м», «45м». */
+fun fmtHmShort(min: Int): String {
+    val m = min.coerceAtLeast(0)
+    return if (m < 60) "${m}м" else "${m / 60}ч ${m % 60}м"
 }
 
 fun fmtPace(secPerKm: Int?): String = if (secPerKm == null || secPerKm <= 0 || secPerKm > 3600) "--:--"

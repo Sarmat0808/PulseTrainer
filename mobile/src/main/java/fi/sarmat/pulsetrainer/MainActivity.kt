@@ -137,7 +137,8 @@ fun PhoneRoot(openId: MutableState<String?>) {
         if (n > 0) Toast.makeText(ctx, "Записано в Health Connect: $n", Toast.LENGTH_SHORT).show()
     }
 
-    val allPerms = HealthSync.PERMISSIONS + HealthData.READ_PERMISSIONS + HealthData.WRITE_WEIGHT + HealthData.EXTRA_PERMISSIONS + FoodSync.PERMISSIONS
+    val allPerms = HealthSync.PERMISSIONS + HealthData.READ_PERMISSIONS + HealthData.WRITE_WEIGHT + HealthData.EXTRA_PERMISSIONS + FoodSync.PERMISSIONS +
+        HealthData.READ_SYNC
     val hcLauncher = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { g ->
         granted = g
         scope.launch { syncPending(); PhoneStore.refreshDays(ctx); FoodSync.syncRecent(ctx) }
@@ -161,6 +162,10 @@ fun PhoneRoot(openId: MutableState<String?>) {
         val fp = ctx.getSharedPreferences("pt", android.content.Context.MODE_PRIVATE)
         if (hcStatus == HealthConnectClient.SDK_AVAILABLE && !granted.containsAll(FoodSync.PERMISSIONS) && !fp.getBoolean("askedFood", false)) {
             fp.edit().putBoolean("askedFood", true).apply()
+            hcLauncher.launch(allPerms)
+        } else if (hcStatus == HealthConnectClient.SDK_AVAILABLE && !granted.containsAll(HealthData.READ_SYNC) && !fp.getBoolean("askedSync69", false)) {
+            // New in 6.9: read Samsung Health's food, water and «всего сожжено» too — ask for that access once.
+            fp.edit().putBoolean("askedSync69", true).apply()
             hcLauncher.launch(allPerms)
         } else FoodSync.syncRecent(ctx)
         try { HealthSync.cleanupShort(ctx) } catch (_: Exception) {}

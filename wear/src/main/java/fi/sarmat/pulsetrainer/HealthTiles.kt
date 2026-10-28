@@ -86,7 +86,8 @@ object HealthTiles {
 
     private fun lvColor(l: Int) = when (l) { 0 -> GREEN; 1 -> YELLOW; else -> RED }
 
-    private fun fmtH(min: Int) = "${min / 60}:${"%02d".format(min % 60)}"
+    /** Hours like Samsung Health, short enough for a tile cell: «7ч 4м». */
+    private fun fmtH(min: Int) = fi.sarmat.pulsetrainer.core.fmtHmShort(min)
 
     fun todayLayout(ctx: Context): LayoutElement {
         val c = Storage.todayCoach() ?: Storage.localCoach()
@@ -118,12 +119,12 @@ object HealthTiles {
         val end = c?.sleepEnd?.takeIf { it > 0 } ?: p?.sleepEnd
         val lines = ArrayList<LayoutElement>()
         lines += text("Сон", 13f, DIM)
-        lines += text(min?.let { "${it / 60} ч ${it % 60} мин" } ?: "Нет данных", 22f, WHITE, bold = true)
+        lines += text(min?.let { fi.sarmat.pulsetrainer.core.fmtHm(it) } ?: "Нет данных", 22f, WHITE, bold = true)
         // Short word so the line fits the round screen.
         if (score != null) lines += text("Оценка $score · " + when { score >= 80 -> "отлично"; score >= 65 -> "хорошо"; score >= 50 -> "средне"; else -> "плохо" }, 14f, if (score >= 75) GREEN else if (score >= 55) YELLOW else RED, bold = true)
         if (start != null && end != null) lines += text("${hm.format(Date(start))} – ${hm.format(Date(end))}", 14f, DIM)
         val deep = c?.deep?.takeIf { it >= 0 }; val rem = c?.rem?.takeIf { it >= 0 }
-        if (deep != null && rem != null) lines += text("Глубокий $deep · REM $rem мин", 13f, PURPLE)
+        if (deep != null && rem != null) lines += text("Глубокий ${fmtH(deep)} · REM ${fmtH(rem)}", 13f, PURPLE)
         else p?.wakeups?.let { lines += text("Пробуждений $it · пульс ночью ${p.restHr ?: "—"}", 13f, DIM) }
         val rest = c?.rest?.takeIf { it > 0 } ?: p?.restHr
         if (rest != null && deep != null) lines += text("Пульс покоя $rest", 13f, DIM)

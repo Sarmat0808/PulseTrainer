@@ -88,6 +88,6 @@ class SleepComplication : PtComplication() {
             val a = d.sleepStart; val b = d.sleepEnd
             if (a != null && b != null) ((b - a) / 60000).toInt() - (d.awakeMin ?: 0) else null
         } ?: return null
-        return Triple(m.toFloat(), 540f, "${m / 60}:${"%02d".format(m % 60)}")
+        return Triple(m.toFloat(), 540f, fi.sarmat.pulsetrainer.core.fmtHmShort(m))
     }
 }

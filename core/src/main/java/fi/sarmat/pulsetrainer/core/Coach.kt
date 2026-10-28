@@ -48,6 +48,10 @@ data class DailyStats(
     /** Sleep start/end (epoch millis) of the main night. */
     val sleepStart: Long? = null,
     val sleepEnd: Long? = null,
+    /** All calories burned this day so far (rest + activity), as Samsung Health counts them. */
+    val totalKcal: Double? = null,
+    /** Basal metabolic rate measured by Samsung Health (body composition), kcal/day. */
+    val bmrKcal: Double? = null,
 )
 
 data class WeightEntry(val time: Long, val kg: Double)
@@ -555,7 +559,7 @@ object Coach {
 
     private fun sign(v: Double) = (if (v >= 0) "+" else "") + "%.2f".format(v)
 
-    fun fmtH(min: Int) = "${min / 60} ч ${min % 60} мин"
+    fun fmtH(min: Int) = fmtHm(min)
 
     fun levelText(level: Int) = when (level) { 0 -> "Высокая готовность"; 1 -> "Средняя готовность"; else -> "Нужно восстановление" }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.DistanceRecord
@@ -11,7 +12,9 @@ import androidx.health.connect.client.records.FloorsClimbedRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.HydrationRecord
 import androidx.health.connect.client.records.LeanBodyMassRecord
+import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.RespiratoryRateRecord
+import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.Vo2MaxRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
@@ -62,6 +65,17 @@ object HealthData {
         HealthPermission.getReadPermission(LeanBodyMassRecord::class),
     )
     val WRITE_WEIGHT: String = HealthPermission.getWritePermission(WeightRecord::class)
+
+    /**
+     * Two-way exchange (6.9): what you log in Samsung Health itself comes into the app too — food and
+     * water from Samsung's diary, «всего сожжено» and the basal metabolism Samsung measured.
+     * Asked once, separately, so «Подключите данные часов» does not come back for them.
+     */
+    val READ_SYNC: Set<String> = setOf(
+        HealthPermission.getReadPermission(NutritionRecord::class),
+        HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(BasalMetabolicRateRecord::class),
+    )
 
     /** Read data older than 30 days before access was granted (full import of your history). */
     const val READ_HISTORY = "android.permission.health.READ_HEALTH_DATA_HISTORY"
@@ -159,7 +173,7 @@ object HealthData {
 
         // Sleep: assigned to the day you woke up.
         if (HealthPermission.getReadPermission(SleepSessionRecord::class) in granted) {
-            val sessions = read(c, SleepSessionRecord::class, from.minusSeconds(86400), to)
+            val sessions = dedupSleep(read(c, SleepSessionRecord::class, from.minusSeconds(86400), to))
             sessions.groupBy { dayStart(it.endTime) }.forEach { (day, list) ->
                 var total = 0L; var deep = 0L; var rem = 0L; var light = 0L; var awake = 0L
                 var hasStages = false
@@ -319,7 +333,19 @@ object HealthData {
                 perDay(read(c, ActiveCaloriesBurnedRecord::class, since, Instant.now(), maxPages = 20), { it.startTime }, { it.metadata.dataOrigin.packageName }, { it.energy.inKilocalories })
                     .forEach { (day, k) -> upd(day) { it.copy(activeKcal = k) } }
             } catch (_: Exception) {}
+            // «Всего сожжено калорий» exactly as Samsung counts it (our own workout records are another source and never added).
+            if (has(TotalCaloriesBurnedRecord::class)) try {
+                perDay(read(c, TotalCaloriesBurnedRecord::class, since, Instant.now(), maxPages = 20)
+                    .filter { it.metadata.dataOrigin.packageName != ctx.packageName }, { it.startTime }, { it.metadata.dataOrigin.packageName }, { it.energy.inKilocalories })
+                    .forEach { (day, k) -> upd(day) { it.copy(totalKcal = k) } }
+            } catch (_: Exception) {}
         }
+        // Basal metabolism Samsung measured (body composition on the watch): the latest value of each day.
+        if (has(BasalMetabolicRateRecord::class)) try {
+            read(c, BasalMetabolicRateRecord::class, from, to).groupBy { dayStart(it.time) }.forEach { (day, l) ->
+                upd(day) { it.copy(bmrKcal = l.maxBy { r -> r.time }.basalMetabolicRate.inKilocaloriesPerDay) }
+            }
+        } catch (_: Exception) {}
 
         // Several apps (Samsung Health, Google Fit, the phone itself…) can write the SAME steps into
         // Health Connect, and the aggregate then adds them up. For the last 14 days the steps are read
@@ -427,6 +453,28 @@ object HealthData {
             if (night[i].first - night[j].first >= 20 * 60_000L && n >= 5) best = minOf(best, sum / n)
         }
         return if (best == Double.MAX_VALUE) null else kotlin.math.round(best).toInt()
+    }
+
+    /**
+     * One night = one copy. Several apps — and Samsung itself after a night is edited — can put the same
+     * night into Health Connect; adding them up gave 18-hour nights. Per wake-up day: Samsung Health's
+     * sessions if it has any, else the source with the most sleep; inside that source a session that
+     * mostly overlaps a longer one is dropped (a separate nap still counts).
+     */
+    private fun dedupSleep(list: List<SleepSessionRecord>): List<SleepSessionRecord> {
+        fun len(s: SleepSessionRecord) = s.endTime.toEpochMilli() - s.startTime.toEpochMilli()
+        return list.groupBy { dayStart(it.endTime) }.flatMap { (_, day) ->
+            val bySrc = day.groupBy { it.metadata.dataOrigin.packageName }
+            val src = bySrc.entries.firstOrNull { it.key.contains("shealth") }?.value
+                ?: bySrc.values.maxByOrNull { l -> l.sumOf { len(it) } } ?: emptyList()
+            val kept = ArrayList<SleepSessionRecord>()
+            src.sortedByDescending { len(it) }.forEach { s ->
+                val a = s.startTime.toEpochMilli(); val b = s.endTime.toEpochMilli()
+                val overlap = kept.sumOf { k -> (minOf(b, k.endTime.toEpochMilli()) - maxOf(a, k.startTime.toEpochMilli())).coerceAtLeast(0L) }
+                if (overlap < len(s) / 2) kept += s
+            }
+            kept
+        }
     }
 
     private val STRENGTH_TYPES = setOf(

@@ -37,6 +37,7 @@ import fi.sarmat.pulsetrainer.core.Coach
 import fi.sarmat.pulsetrainer.core.Health
 import fi.sarmat.pulsetrainer.core.Profile
 import fi.sarmat.pulsetrainer.core.fmtDuration
+import fi.sarmat.pulsetrainer.core.fmtHm
 import java.text.SimpleDateFormat
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -214,7 +215,7 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                             parts.forEach { (_, m, c) -> if (m > 0) Box(Modifier.weight(m.toFloat() / total).height(14.dp).background(c)) }
                         }
                         Expander {
-                            parts.forEach { (n, m, c) -> VRow(n, "$m мин", "${(m * 100 / total)}%") }
+                            parts.forEach { (n, m, _) -> VRow(n, fmtHm(m), "${(m * 100 / total)}%") }
                             val deep = d.deepMin ?: 0; val sleep = d.sleepMin ?: 0
                             BulletText(when {
                                 sleep > 0 && deep.toDouble() / sleep < 0.12 -> "Глубокого сна мало: без кофеина после 14:00, тяжёлой тренировки и еды за 3 ч до сна."
@@ -267,8 +268,9 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
             }
             "balance" -> Tile {
                 TileTitle("Калории сегодня")
-                val bal = remember(p, days, workouts, foodV, minuteTick) { Balance.today(p, days, workouts) }
-                BalanceContent(bal, remember(foodV, workouts, ext, minuteTick) { FoodStore.targets(LocalDate.now()).kcal })
+                val target = remember(p, goal, days, foodV, workouts, ext, minuteTick) { FoodStore.targets(LocalDate.now()) }
+                val bal = remember(p, days, workouts, foodV, minuteTick, target) { Balance.today(p, days, workouts, target) }
+                BalanceContent(bal, target.kcal)
             }
             "trend" -> Tile {
                 TileTitle("Куда я двигаюсь")
@@ -307,7 +309,7 @@ fun TodayScreen(needAccess: Boolean, onGrant: () -> Unit, onRefresh: () -> Unit,
                 if (extWeek.isNotEmpty()) Expander("Тренировки из Samsung Health (${extWeek.size})") {
                     extWeek.reversed().forEach { e ->
                         VRow(e.title + " · " + SimpleDateFormat("EE d", Locale("ru")).format(Date(e.start)),
-                            "${e.minutes} мин", if (e.estimated) "нагрузка ~${e.trimp.roundToInt()} (без пульса)" else "♥ ${e.avgHr} · нагрузка ${e.trimp.roundToInt()}")
+                            fmtHm(e.minutes), if (e.estimated) "нагрузка ~${e.trimp.roundToInt()} (без пульса)" else "♥ ${e.avgHr} · нагрузка ${e.trimp.roundToInt()}")
                     }
                 }
             }

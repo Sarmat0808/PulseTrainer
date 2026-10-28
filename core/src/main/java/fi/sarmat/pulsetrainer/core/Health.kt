@@ -13,14 +13,20 @@ object Health {
 
     /**
      * Sleep score 0–100: duration (50 %), deep sleep share (20 %), REM share (20 %), awake time (10 %).
-     * Targets: 7–9 h, deep ≥15 %, REM ≥20 %, awake ≤5 %.
+     * Targets: 7.5–9.5 h, deep ≥15 %, REM ≥20 %, awake ≤5 %. Full points for length only from 7.5 h —
+     * like Samsung Health, which scores a 7-hour night in the low 90s, not 100.
      */
     fun sleepScore(d: DailyStats?): Score? {
         if (d == null) return null
         val total = d.sleepMin ?: return null
         if (total <= 0) return null
         val h = total / 60.0
-        val dur = when { h >= 7 && h <= 9.5 -> 1.0; h < 7 -> max(0.0, (h - 4.5) / 2.5); else -> max(0.6, 1 - (h - 9.5) / 3) }
+        val dur = when {
+            h >= 7.5 && h <= 9.5 -> 1.0
+            h >= 7 && h < 7.5 -> 0.85 + (h - 7) * 0.3
+            h < 7 -> max(0.0, (h - 4.5) / 2.5 * 0.85)
+            else -> max(0.6, 1 - (h - 9.5) / 3)
+        }
         val deep = d.deepMin?.let { min(1.0, it.toDouble() / total / 0.15) } ?: 0.8
         val rem = d.remMin?.let { min(1.0, it.toDouble() / total / 0.20) } ?: 0.8
         val awake = d.awakeMin?.let { max(0.0, 1 - max(0.0, it.toDouble() / (total + it) - 0.05) * 5) } ?: 0.8
@@ -272,7 +278,7 @@ object Health {
             advice += "МПК считается на 1 кг веса: каждые −2 кг жира дают ≈ +${"%.1f".format(perKg * 2)} без единой тренировки. При вашей цели — медленно убирать жир, сохраняя мышцы."
         }
         if (steps != null && steps < 8000) advice += "Шаги: в среднем ${steps.roundToInt()} в день — добавьте до 8–10 тыс., это дешёвая аэробная база."
-        if (sleep != null && sleep < 420) advice += "Сон в среднем ${sleep.roundToInt() / 60} ч ${sleep.roundToInt() % 60} мин: при недосыпе сердце хуже адаптируется к нагрузке. Цель — 7–8 ч."
+        if (sleep != null && sleep < 420) advice += "Сон в среднем ${fmtHm(sleep.roundToInt())}: при недосыпе сердце хуже адаптируется к нагрузке. Цель — 7–8 ч."
         if (!measured) advice += "Для точного значения: бег или быстрая ходьба на улице 20+ мин с часами — Samsung Health измерит МПК сам."
         val explain = listOf(
             "МПК (VO₂max) — сколько кислорода тело может использовать в минуту на 1 кг. Лучший показатель выносливости сердца и прогноза здоровья.",

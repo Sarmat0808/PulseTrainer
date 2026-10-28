@@ -201,7 +201,7 @@ private fun SleepCard(today: fi.sarmat.pulsetrainer.core.DailyStats?) {
             Row(Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(7.dp))) {
                 parts.forEach { (_, m, c) -> if (m > 0) Box(Modifier.weight(m.toFloat() / total).height(14.dp).background(c)) }
             }
-            Text(parts.joinToString(" · ") { "${it.first} ${it.second} мин" }, color = Dim, fontSize = 15.sp)
+            Text(parts.joinToString(" · ") { "${it.first} ${fi.sarmat.pulsetrainer.core.fmtHm(it.second)}" }, color = Dim, fontSize = 15.sp)
         }
     }
 }

@@ -20,8 +20,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fi.sarmat.pulsetrainer.core.DailyStats
 import fi.sarmat.pulsetrainer.core.DayTotals
+import fi.sarmat.pulsetrainer.core.Nutrition
 import fi.sarmat.pulsetrainer.core.Physiology
 import fi.sarmat.pulsetrainer.core.Profile
+import fi.sarmat.pulsetrainer.core.Targets
 import fi.sarmat.pulsetrainer.core.Workout
 import java.time.LocalDate
 import java.time.LocalTime
@@ -32,8 +34,9 @@ import kotlin.math.roundToInt
 
 /**
  * Calories of today, live: what you ate vs what you burned so far, and where the day will end.
- * Burned = resting (basal metabolism for the hours passed) + active (Samsung Health / your workouts),
- * the same way Samsung Health and Garmin count «total calories».
+ * Burned so far = Samsung Health's «всего сожжено» (rest + activity) when it shares it, else basal
+ * metabolism for the hours passed + active calories. The end of the day and «держать вес» come from the
+ * same energy use as the food norm (core Nutrition), so the card never contradicts the norm.
  */
 object Balance {
     data class Day(
@@ -41,29 +44,26 @@ object Balance {
         val restSoFar: Int,
         val active: Int,
         val burned: Int,
-        /** Expected total burn by the end of the day (rest of the day at your usual activity). */
+        /** Expected total burn by the end of the day = calories that keep the weight today. */
         val endBurn: Int,
         val ateSomething: Boolean,
+        /** «Всего сожжено» came from Samsung Health (not the formula). */
+        val fromSamsung: Boolean,
     )
 
-    fun today(p: Profile, days: List<DailyStats>, workouts: List<Workout>): Day {
+    fun today(p: Profile, days: List<DailyStats>, workouts: List<Workout>, target: Targets): Day {
         val z = ZoneId.systemDefault()
         val d = LocalDate.now()
         val start = d.atStartOfDay(z).toInstant().toEpochMilli()
         val nowMin = LocalTime.now().let { it.hour * 60 + it.minute }
-        val bmr = Physiology.bmr(p)
-        val rest = bmr * nowMin / 1440.0
-        val hc = days.lastOrNull { it.day == start }?.activeKcal ?: 0.0
+        val todayStats = days.lastOrNull { it.day == start }
+        val bmr = Physiology.bmr(p, PhoneStore.measuredBmr())
+        val hc = todayStats?.activeKcal ?: 0.0
         val own = workouts.filter { it.start >= start }.sumOf { it.kcalActive }
         val active = max(hc, own)
-        // Your usual active calories (last 7 full days) for the hours still ahead (awake until ~23:00).
-        val usual = days.filter { it.day < start && it.day >= start - 7 * 86400_000L }.mapNotNull { it.activeKcal?.takeIf { k -> k > 50 } }
-            .takeIf { it.isNotEmpty() }?.average() ?: 0.0
-        val awakeLeft = ((23 * 60 - nowMin) / (16.0 * 60)).coerceIn(0.0, 1.0)
-        val end = bmr + active + usual * awakeLeft
+        val b = Nutrition.burnToday(bmr, nowMin, todayStats?.totalKcal, active, target.maintain)
         val e = FoodStore.entries(d)
-        return Day(DayTotals.of(e).kcal.roundToInt(), rest.roundToInt(), active.roundToInt(), (rest + active).roundToInt(),
-            end.roundToInt(), e.any { it.drinkMl == 0 })
+        return Day(DayTotals.of(e).kcal.roundToInt(), b.rest, b.active, b.burned, b.endOfDay, e.any { it.drinkMl == 0 }, b.fromTotal)
     }
 }
 
@@ -101,21 +101,26 @@ fun BalanceContent(b: Balance.Day, appTarget: Int) {
         Mini("~${b.endBurn}", "за весь день", Modifier.weight(1f))
     }
 
-    // What to eat for the rest of the day.
+    // What to eat for the rest of the day — from the same energy use as the norm.
+    val toTarget = appTarget - b.eaten
     val keep = b.endBurn - b.eaten
     val lose = b.endBurn - 400 - b.eaten
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text("До конца дня можно съесть:", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        Text(if (lose > 0) "• лёгкий дефицит (−400): ещё ~$lose ккал" else "• лёгкий дефицит (−400): уже съедено больше",
-            color = if (lose > 0) Good else Warn, fontSize = 17.sp)
+        Text(if (toTarget > 0) "• до нормы под цель ($appTarget): ещё ~$toTarget ккал" else "• норма под цель ($appTarget) уже набрана",
+            color = if (toTarget > 0) Good else Color.White, fontSize = 17.sp)
         Text(if (keep > 0) "• держать вес: ещё ~$keep ккал" else "• держать вес: уже профицит ${-keep} ккал",
             color = if (keep > 0) Color.White else Warn, fontSize = 17.sp)
-        Text("• норма приложения под цель: $appTarget ккал", color = Dim, fontSize = 16.sp)
+        Text(if (lose > 0) "• лёгкий дефицит (−400): ещё ~$lose ккал" else "• лёгкий дефицит (−400): уже съедено больше",
+            color = Dim, fontSize = 16.sp)
     }
     Expander("Как считается") {
-        Text("Потрачено = обмен в покое за прошедшие часы (формула Миффлина) + активные калории за день (Samsung Health и ваши тренировки) — так же, как «всего калорий» в Samsung Health.",
+        Text(if (b.fromSamsung) "Потрачено — «Всего сожжено калорий» из Samsung Health (обмен в покое + активность), то же число, что в Samsung."
+            else "Потрачено = обмен в покое за прошедшие часы + активные калории (Samsung Health и ваши тренировки). Samsung пока не передал «всего сожжено».",
             color = Dim, fontSize = 15.sp)
-        Text("«За весь день» — прогноз: полный обмен + активность до вечера, как в ваши обычные дни. Светлая часть полосы — то, что ещё потратите.",
+        Text("«За весь день» — сколько вы тратите за день по вашим данным (дневник еды и вес), на этом же числе построена норма. Светлая часть полосы — то, что ещё потратите.",
+            color = Dim, fontSize = 15.sp)
+        Text("«Активные» в кольце Samsung считают только минуты движения, поэтому там число бывает меньше.",
             color = Dim, fontSize = 15.sp)
         Text("Лёгкий дефицит 300–500 ккал ≈ −0,3…−0,5 кг в неделю без потери мышц (при белке 1,8–2 г/кг и силовых). Точность расчёта ±10 %, поэтому смотрите на вес за 2–3 недели.",
             color = Dim, fontSize = 15.sp)

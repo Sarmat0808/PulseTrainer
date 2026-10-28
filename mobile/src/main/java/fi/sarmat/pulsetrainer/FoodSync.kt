@@ -24,7 +24,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * Food and drinks → Health Connect → Samsung Health (food diary and water), like the workouts.
+ * Food and drinks → Health Connect → Samsung Health (food diary and water), like the workouts;
+ * and back: what you log in Samsung Health comes into the diary ([readExternal]).
  *
  * Each day is written as a whole: first the day's records written by PulseTrainer are removed
  * (Health Connect only lets an app delete its own data), then the current diary is written again.
@@ -49,7 +50,7 @@ object FoodSync {
             pending[d]?.cancel()
             pending[d] = scope.launch {
                 delay(3000)
-                try { writeDay(ctx, d, FoodStore.entries(d)) } catch (_: Exception) {}
+                try { writeDay(ctx, d, FoodStore.ownEntries(d)) } catch (_: Exception) {}
             }
         }
     }
@@ -60,7 +61,7 @@ object FoodSync {
         val today = LocalDate.now()
         for (i in 0 until days) {
             val d = today.minusDays(i.toLong())
-            try { if (writeDay(ctx, d, FoodStore.entries(d))) n++ } catch (_: Exception) {}
+            try { if (writeDay(ctx, d, FoodStore.ownEntries(d))) n++ } catch (_: Exception) {}
         }
         return n
     }
@@ -70,6 +71,65 @@ object FoodSync {
         Meals.LUNCH -> MealType.MEAL_TYPE_LUNCH
         Meals.DINNER -> MealType.MEAL_TYPE_DINNER
         else -> MealType.MEAL_TYPE_SNACK
+    }
+
+    /** Diary id prefix of entries that came from Samsung Health (they are shown, never written back). */
+    const val EXT = "hc:"
+
+    private fun ourMeal(t: Int): Int = when (t) {
+        MealType.MEAL_TYPE_BREAKFAST -> Meals.BREAKFAST
+        MealType.MEAL_TYPE_LUNCH -> Meals.LUNCH
+        MealType.MEAL_TYPE_DINNER -> Meals.DINNER
+        else -> -1   // snack / unknown: taken from the time
+    }
+
+    private suspend fun <T : androidx.health.connect.client.records.Record> readAll(
+        c: HealthConnectClient, type: kotlin.reflect.KClass<T>, from: Instant, to: Instant,
+    ): List<T> {
+        val out = ArrayList<T>()
+        var token: String? = null
+        var pages = 0
+        do {
+            val resp = c.readRecords(androidx.health.connect.client.request.ReadRecordsRequest(type, TimeRangeFilter.between(from, to), pageSize = 1000, pageToken = token))
+            out += resp.records
+            token = resp.pageToken
+            pages++
+        } while (token != null && pages < 10)
+        return out
+    }
+
+    /**
+     * Food and water you logged in Samsung Health itself (on the watch or the phone), last [days] days.
+     * They join the diary marked «Samsung Health» and count in calories, БЖУ and water. PulseTrainer's own
+     * records are skipped here — they are in the diary already. null = no access (nothing changes).
+     */
+    suspend fun readExternal(ctx: Context, days: Int = 14): Map<LocalDate, List<FoodEntry>>? {
+        if (!HealthSync.available(ctx)) return null
+        val c = HealthConnectClient.getOrCreate(ctx)
+        val g = c.permissionController.getGrantedPermissions()
+        val canFood = HealthPermission.getReadPermission(NutritionRecord::class) in g
+        val canWater = HealthPermission.getReadPermission(HydrationRecord::class) in g
+        if (!canFood && !canWater) return null
+        val zone = ZoneId.systemDefault()
+        val from = LocalDate.now().minusDays(days - 1L).atStartOfDay(zone).toInstant()
+        val to = LocalDate.now().plusDays(1).atStartOfDay(zone).toInstant()
+        val out = ArrayList<FoodEntry>()
+        if (canFood) readAll(c, NutritionRecord::class, from, to).filter { it.metadata.dataOrigin.packageName != ctx.packageName }.forEach { r ->
+            val kcal = r.energy?.inKilocalories ?: 0.0
+            val p = r.protein?.inGrams ?: 0.0
+            val f = r.totalFat?.inGrams ?: 0.0
+            // Only calories without БЖУ (quick entry): counted as carbohydrates so the day's calories are right.
+            val cb = if (p + f + (r.totalCarbohydrate?.inGrams ?: 0.0) < 0.5 && kcal > 0) kcal / 4 else r.totalCarbohydrate?.inGrams ?: 0.0
+            if (p * 4 + f * 9 + cb * 4 < 1) return@forEach
+            val name = r.name?.takeIf { it.isNotBlank() } ?: "Еда"
+            out += FoodEntry(r.startTime.toEpochMilli(), EXT + r.metadata.id, "$name · Samsung Health", 0.0, p, f, cb, 0, ourMeal(r.mealType))
+        }
+        if (canWater) readAll(c, HydrationRecord::class, from, to).filter { it.metadata.dataOrigin.packageName != ctx.packageName }.forEach { r ->
+            val ml = r.volume.inMilliliters
+            if (ml < 1) return@forEach
+            out += FoodEntry(r.startTime.toEpochMilli(), EXT + r.metadata.id, "Вода · Samsung Health", ml, 0.0, 0.0, 0.0, Math.round(ml).toInt())
+        }
+        return out.groupBy { Instant.ofEpochMilli(it.time).atZone(zone).toLocalDate() }
     }
 
     /** Returns true when something was written. */

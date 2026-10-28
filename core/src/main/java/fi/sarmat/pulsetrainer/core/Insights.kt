@@ -257,8 +257,8 @@ object Insights {
         val lines = ArrayList<String>()
         lines += "Сейчас вы обычно ложитесь в ~${hm(medBed + 18 * 60)} и встаёте в ~${hm(medWake)}, спите в среднем ${fmtH(avgSleep.roundToInt())}, просыпаетесь ночью на ~$awake мин."
         if (bestBed != null) lines += "Лучше всего вы спали (≥7,5 ч и низкий пульс утром), когда ложились около ${hm(bestBed + 18 * 60)}."
-        if (bedSpread > 90) lines += "Время отбоя скачет на ${bedSpread / 60} ч ${bedSpread % 60} мин — организму трудно настроиться. Ровный режим ±30 мин даёт более глубокий сон."
-        if (wakeSpread > 90) lines += "Подъём скачет на ${wakeSpread / 60} ч ${wakeSpread % 60} мин. Вставайте в одно время и в выходные — это главный «якорь» биочасов."
+        if (bedSpread > 90) lines += "Время отбоя скачет на ${fmtH(bedSpread)} — организму трудно настроиться. Ровный режим ±30 мин даёт более глубокий сон."
+        if (wakeSpread > 90) lines += "Подъём скачет на ${fmtH(wakeSpread)}. Вставайте в одно время и в выходные — это главный «якорь» биочасов."
         // What pushes sleep later in YOUR data
         val lateCoffee = food.filter { it.day > now - 14 * DAY }.mapNotNull { it.lastCoffeeMin }.filter { it >= 15 * 60 }
         if (lateCoffee.isNotEmpty()) lines += "Кофе после 15:00 был ${lateCoffee.size} раз(а) (последний в ${hm(lateCoffee.max())}). Кофеин действует 6–8 ч — последний кофе до 14:00."
@@ -277,5 +277,5 @@ object Insights {
         return SleepPlan(hm(bed), hm(wake), "${hm(medBed + 18 * 60)} → ${hm(medWake)}", lines)
     }
 
-    private fun fmtH(min: Int) = "${min / 60}:${"%02d".format(min % 60)}"
+    private fun fmtH(min: Int) = fmtHm(min)
 }

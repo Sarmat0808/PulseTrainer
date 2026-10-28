@@ -119,8 +119,8 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             val en = try { PhoneStore.energy() } catch (_: Exception) { null }
             val rec = try { PhoneStore.recovery() } catch (_: Exception) { null }
             val sleepLine = night?.sleepMin?.let { m ->
-                "Сон ${m / 60} ч ${m % 60} мин" + (sc?.let { " · оценка ${it.value} (${it.label.lowercase()})" } ?: "") +
-                    (night.deepMin?.let { " · глубокий $it мин" } ?: "") + (night.restHr?.let { " · пульс ночью $it" } ?: "")
+                "Сон ${fi.sarmat.pulsetrainer.core.fmtHm(m)}" + (sc?.let { " · оценка ${it.value} (${it.label.lowercase()})" } ?: "") +
+                    (night.deepMin?.let { " · глубокий ${fi.sarmat.pulsetrainer.core.fmtHm(it)}" } ?: "") + (night.restHr?.let { " · пульс ночью $it" } ?: "")
             } ?: "Сон: нет данных — спите с часами"
             val lines = listOf(sleepLine,
                 "Готовность ${a.score}/100 · ${Coach.levelText(a)}" + (en?.let { " · энергия ${it.now}" } ?: ""),

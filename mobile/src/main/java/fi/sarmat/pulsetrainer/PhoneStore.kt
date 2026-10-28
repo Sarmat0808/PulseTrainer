@@ -290,12 +290,15 @@ object PhoneStore {
             food, weights.value, body.value, hrv.value, wch)
     }
 
+    /** Basal metabolic rate Samsung Health measured last (body composition on the watch), kcal/day. */
+    fun measuredBmr(): Double? = days.value.lastOrNull { it.bmrKcal != null }?.bmrKcal
+
     fun learnEnergy(): fi.sarmat.pulsetrainer.core.Learn.Energy {
         val z = java.time.ZoneId.systemDefault()
         val intake = FoodStore.history(28).filter { !it.forgot && it.entries.isNotEmpty() && it.date != java.time.LocalDate.now() }
             .map { it.date.atStartOfDay(z).toInstant().toEpochMilli() to it.totals.kcal }
         val p = profile.value ?: fi.sarmat.pulsetrainer.core.Profile()
-        val formula = (fi.sarmat.pulsetrainer.core.Physiology.bmr(p) * 1.5).roundToInt()
+        val formula = (fi.sarmat.pulsetrainer.core.Physiology.bmr(p, measuredBmr()) * 1.5).roundToInt()
         val e = fi.sarmat.pulsetrainer.core.Learn.energy(intake, weights.value.map { it.time to it.kg }, formula)
         learnedTdee = e.tdee
         return e
@@ -442,6 +445,8 @@ object PhoneStore {
         if (snap != null && (hasData || snap.ext.isNotEmpty())) {
             ext.value = snap.ext; if (snap.hrRecent.isNotEmpty()) hrRecent.value = snap.hrRecent
         }
+        // Food and water logged in Samsung Health come into the diary (two-way exchange).
+        try { FoodSync.readExternal(ctx)?.let { FoodStore.setExternal(it) } } catch (_: Exception) {}
         // Every weight from Samsung Health scales / manual entries joins the log (one per day).
         val fromHc = (snap?.days ?: emptyList()).filter { it.weightKg != null }.map { WeightEntry(it.day + 8 * 3600_000L, it.weightKg!!) }
         if (fromHc.isNotEmpty()) {

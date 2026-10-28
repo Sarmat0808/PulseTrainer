@@ -183,7 +183,7 @@ private fun ExtRow(e: ExtWorkout) {
         Column(Modifier.weight(1f)) {
             Text(e.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2)
             Text(dayFmt.format(Date(e.start)) + " · Samsung Health", color = Dim, fontSize = 14.sp, maxLines = 2)
-            Text("${e.minutes} мин" + (e.avgHr?.let { " · ♥ $it" } ?: "") + " · нагрузка ${e.trimp.toInt()}" + if (e.estimated) " (оценка)" else "",
+            Text(fi.sarmat.pulsetrainer.core.fmtHm(e.minutes) + (e.avgHr?.let { " · ♥ $it" } ?: "") + " · нагрузка ${e.trimp.toInt()}" + if (e.estimated) " (оценка)" else "",
                 color = Dim, fontSize = 14.sp, maxLines = 2)
         }
     }

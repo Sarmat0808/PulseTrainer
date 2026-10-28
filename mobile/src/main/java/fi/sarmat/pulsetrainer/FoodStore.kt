@@ -34,7 +34,8 @@ object FoodStore {
 
     private fun key(d: LocalDate) = "day_$d"
 
-    fun entries(d: LocalDate): List<FoodEntry> = try {
+    /** Your own entries (what PulseTrainer writes to Samsung Health). */
+    fun ownEntries(d: LocalDate): List<FoodEntry> = try {
         val a = JSONArray(prefs.getString(key(d), "[]"))
         (0 until a.length()).map {
             val o = a.getJSONObject(it)
@@ -42,6 +43,43 @@ object FoodStore {
                 o.getDouble("p"), o.getDouble("f"), o.getDouble("c"), o.optInt("ml"), o.optInt("m", -1))
         }
     } catch (_: Exception) { emptyList() }
+
+    // ----- Food and water logged in Samsung Health itself -----
+
+    @Volatile private var external: Map<LocalDate, List<FoodEntry>> = emptyMap()
+
+    /** New food / water from Samsung Health (read on every refresh). */
+    fun setExternal(map: Map<LocalDate, List<FoodEntry>>) {
+        if (map == external) return
+        external = map
+        version.value++
+    }
+
+    fun isExternal(e: FoodEntry) = e.foodId.startsWith(FoodSync.EXT)
+
+    private fun hiddenExt(d: LocalDate): Set<String> =
+        (prefs.getString("hchide_$d", "") ?: "").split(',').filter { it.isNotBlank() }.toSet()
+
+    /**
+     * Samsung Health may hand our own records back under its name: something of ours within 10 minutes
+     * with the same calories (or the same ml of water), alone or as a whole meal, is the same food.
+     */
+    private fun isEcho(x: FoodEntry, own: List<FoodEntry>): Boolean {
+        val near = own.filter { kotlin.math.abs(it.time - x.time) <= 10 * 60_000L }
+        if (near.isEmpty()) return false
+        fun same(a: Double, b: Double) = kotlin.math.abs(a - b) <= maxOf(5.0, b * 0.05)
+        return if (x.drinkMl > 0 && x.kcal < 1) near.any { it.drinkMl == x.drinkMl } || same(near.sumOf { it.drinkMl }.toDouble(), x.drinkMl.toDouble())
+        else near.any { same(it.kcal, x.kcal) } || same(near.sumOf { it.kcal }, x.kcal)
+    }
+
+    /** Everything of the day: your entries + what you logged in Samsung Health (without echoes of your own and the ones you hid). */
+    fun entries(d: LocalDate): List<FoodEntry> {
+        val own = ownEntries(d)
+        val ext = external[d].orEmpty()
+        if (ext.isEmpty()) return own
+        val hidden = hiddenExt(d)
+        return (own + ext.filter { it.foodId !in hidden && !isEcho(it, own) }).sortedBy { it.time }
+    }
 
     private fun saveDay(d: LocalDate, list: List<FoodEntry>) {
         val a = JSONArray()
@@ -59,7 +97,7 @@ object FoodStore {
         val t = time ?: if (meal >= 0) mealTime(d, meal)
         else if (d == now) System.currentTimeMillis()
         else d.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        saveDay(d, entries(d) + Nutrition.entry(food, amount, t).copy(meal = meal))
+        saveDay(d, ownEntries(d) + Nutrition.entry(food, amount, t).copy(meal = meal))
         setForgot(d, false)
         touchRecent(food.id)
         prefs.edit().putFloat("amt_${food.id}", amount.toFloat()).apply()
@@ -88,17 +126,24 @@ object FoodStore {
     /** "I ate breakfast at 9:20": moves every entry of this meal on that day to that time. */
     fun setMealTime(d: LocalDate, meal: Int, minute: Int) {
         val t = d.atTime(minute / 60, minute % 60).atZone(zone).toInstant().toEpochMilli()
-        saveDay(d, entries(d).map { if (mealOf(it) == meal) it.copy(time = t, meal = meal) else it })
+        saveDay(d, ownEntries(d).map { if (mealOf(it) == meal) it.copy(time = t, meal = meal) else it })
     }
 
-    /** Edit one entry (time, meal, amount). */
+    /** Edit one entry (time, meal, amount). Samsung Health's entries are changed in Samsung Health. */
     fun update(d: LocalDate, old: FoodEntry, new: FoodEntry) {
-        val list = entries(d).toMutableList()
+        if (isExternal(old)) return
+        val list = ownEntries(d).toMutableList()
         val i = list.indexOf(old)
         if (i >= 0) { list[i] = new; saveDay(d, list) }
     }
 
-    fun remove(d: LocalDate, e: FoodEntry) = saveDay(d, entries(d).filter { it != e })
+    /** Delete; an entry from Samsung Health is only hidden here (an app may delete only its own data there). */
+    fun remove(d: LocalDate, e: FoodEntry) {
+        if (isExternal(e)) {
+            prefs.edit().putString("hchide_$d", (hiddenExt(d) + e.foodId).joinToString(",")).apply()
+            version.value++
+        } else saveDay(d, ownEntries(d).filter { it != e })
+    }
 
     // ----- forgot to log -----
     fun forgot(d: LocalDate): Boolean = prefs.getBoolean("forgot_$d", false)
@@ -211,7 +256,7 @@ object FoodStore {
 
     fun targets(d: LocalDate): Targets =
         Nutrition.targets(PhoneStore.profile.value ?: Profile(), PhoneStore.goal.value, trainedOn(d), realTdee = PhoneStore.learnedTdee,
-            trainingMin = trainingMinutes(d), workoutKcal = workoutKcal(d))
+            trainingMin = trainingMinutes(d), workoutKcal = workoutKcal(d), bmr = PhoneStore.measuredBmr())
 
     /** Active kcal of today's workouts (PulseTrainer exact; other apps ~7 kcal/min). */
     fun workoutKcal(d: LocalDate): Double {
